@@ -21,7 +21,7 @@ impl Default for VqConfig {
             iterations: 12,
             sample_limit: 65_536,
             codebook_count: 1,
-            beam_width: 8,
+            beam_width: 4,
         }
     }
 }
