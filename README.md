@@ -579,3 +579,19 @@ The first Rust workspace and format primitives now exist on `feat/hpsi-core-cont
 **Validation status:** the first CI attempts correctly caught formatting differences. Those formatting changes have been applied; the latest branch revision still requires a completed CI run. No passing result is claimed yet.
 
 **Not implemented yet:** metadata parsing, tensor/block directory parsing, full ModelReader, writer, CRC32C, CLI commands, fuzzing, and any compression or direct-compute kernel.
+
+
+### Feature 001 — reader implementation update
+
+The initial reader implementation now includes:
+- bounded metadata JSON parsing and tensor-name validation;
+- typed tensor, block, and integrity directory entry parsers;
+- dtype-aware logical byte validation, including packed 1/2/4-bit types;
+- cross-checks for tensor/block ownership, logical coverage, payload bounds, and overlapping payload ranges;
+- auxiliary-reference existence and cycle checks;
+- `ModelReader::open`, which validates directories without reading payload bytes;
+- `read_block`, which fetches one selected block payload;
+- streaming CRC32C verification with a fixed 64 KiB working buffer;
+- read statistics and integration fixtures proving that open performs zero payload reads.
+
+The latest CI run for the initial Rust foundation passed on Windows, macOS, and Ubuntu. The expanded directory-reader implementation is newer and is awaiting its own CI result; it is not yet declared complete.
