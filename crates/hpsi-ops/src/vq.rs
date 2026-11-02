@@ -80,6 +80,8 @@ impl Drop for TemporarySpool {
 }
 
 pub const GROUP_SIZE: usize = 8;
+const MAX_VQ_TRAINING_SAMPLES: usize = 262_144;
+const MAX_VQ_ITERATIONS: usize = 256;
 pub const CODEBOOK_SIZE: usize = 16;
 const CODEBOOK_VALUES: usize = GROUP_SIZE * CODEBOOK_SIZE;
 
@@ -114,6 +116,24 @@ impl std::fmt::Display for VqError {
     }
 }
 impl std::error::Error for VqError {}
+
+fn validate_vq_config(config: VqConfig) -> Result<(), VqError> {
+    if config.iterations == 0 || config.iterations > MAX_VQ_ITERATIONS {
+        return Err(VqError("k-means iterations exceed supported resource limits"));
+    }
+    if config.sample_limit == 0 || config.sample_limit > MAX_VQ_TRAINING_SAMPLES {
+        return Err(VqError("VQ training sample limit exceeds supported resource limits"));
+    }
+    if !(1..=4).contains(&config.codebook_count) {
+        return Err(VqError(
+            "only one through four additive codebooks are supported",
+        ));
+    }
+    if !(1..=256).contains(&config.beam_width) {
+        return Err(VqError("beam width must be between 1 and 256"));
+    }
+    Ok(())
+}
 
 /// Return the number of packed 4-bit selectors in one matrix row.
 /// Rows are independently addressable in HPSI blocks, so each row must end
@@ -239,19 +259,7 @@ impl VqMatrix {
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
-        if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError(
-                "k-means iterations and sample limit must be non-zero",
-            ));
-        }
-        if !(1..=4).contains(&config.codebook_count) {
-            return Err(VqError(
-                "only one through four additive codebooks are supported",
-            ));
-        }
-        if !(1..=256).contains(&config.beam_width) {
-            return Err(VqError("beam width must be between 1 and 256"));
-        }
+        validate_vq_config(config)?;
         selectors_per_row(cols, config.codebook_count)?;
 
         let group_count = expected / GROUP_SIZE;
@@ -278,10 +286,15 @@ impl VqMatrix {
 
         let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
         for stage in 0..config.codebook_count {
-            let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
-                .iter()
-                .map(|sample| beam_search_additive(sample, &codebooks, config.beam_width).0)
-                .collect();
+            let mut residual_samples = Vec::new();
+            residual_samples
+                .try_reserve_exact(samples.len())
+                .map_err(|_| VqError("could not allocate VQ residual samples"))?;
+            for sample in &samples {
+                residual_samples.push(
+                    beam_search_additive(sample, &codebooks, config.beam_width).0,
+                );
+            }
             codebooks.push(fit_codebook(
                 &residual_samples,
                 config.iterations,
@@ -685,19 +698,7 @@ impl VqMatrix {
                 "matrix shape must be non-zero, group-aligned, and match weights",
             ));
         }
-        if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError(
-                "k-means iterations and sample limit must be non-zero",
-            ));
-        }
-        if !(1..=4).contains(&config.codebook_count) {
-            return Err(VqError(
-                "only one through four additive codebooks are supported",
-            ));
-        }
-        if !(1..=256).contains(&config.beam_width) {
-            return Err(VqError("beam width must be between 1 and 256"));
-        }
+        validate_vq_config(config)?;
         if weights.iter().any(|value| !value.is_finite()) {
             return Err(VqError("matrix weights must be finite"));
         }
@@ -728,7 +729,10 @@ impl VqMatrix {
         selectors_per_row(cols, config.codebook_count)?;
         let group_count = expected / GROUP_SIZE;
         let sample_count = group_count.min(config.sample_limit);
-        let mut samples = Vec::with_capacity(sample_count);
+        let mut samples = Vec::new();
+        samples
+            .try_reserve_exact(sample_count)
+            .map_err(|_| VqError("could not allocate VQ training samples"))?;
         for sample_index in 0..sample_count {
             let group_index =
                 ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
@@ -743,10 +747,15 @@ impl VqMatrix {
 
         let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
         for stage in 0..config.codebook_count {
-            let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
-                .iter()
-                .map(|sample| beam_search_additive(sample, &codebooks, config.beam_width).0)
-                .collect();
+            let mut residual_samples = Vec::new();
+            residual_samples
+                .try_reserve_exact(samples.len())
+                .map_err(|_| VqError("could not allocate VQ residual samples"))?;
+            for sample in &samples {
+                residual_samples.push(
+                    beam_search_additive(sample, &codebooks, config.beam_width).0,
+                );
+            }
             // Residual stages reserve a zero centroid. Adding a stage therefore
             // cannot increase per-group reconstruction error in weight space.
             let codebook = fit_codebook(&residual_samples, config.iterations, stage != 0)?;
