@@ -427,10 +427,6 @@ fn validate_directories(
         ));
     }
 
-    let mut payload_ranges = Vec::new();
-    payload_ranges
-        .try_reserve_exact(blocks.len())
-        .map_err(|_| FormatError::LimitExceeded("payload range allocation failed"))?;
     for tensor in tensors {
         let start = usize::try_from(tensor.first_block_index).map_err(|_| {
             FormatError::InvalidDirectory("first block index exceeds address space")
@@ -499,15 +495,6 @@ fn validate_directories(
         if expected_logical_offset != tensor.logical_nbytes {
             return Err(FormatError::InvalidDirectory(
                 "blocks do not cover tensor logical byte range",
-            ));
-        }
-    }
-
-    payload_ranges.sort_unstable_by_key(|range| range.0);
-    for pair in payload_ranges.windows(2) {
-        if pair[0].1 > pair[1].0 {
-            return Err(FormatError::InvalidDirectory(
-                "block payload ranges overlap",
             ));
         }
     }
