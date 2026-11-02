@@ -1457,8 +1457,8 @@ mod streaming_writer_tests {
             Ok(2)
         });
         assert!(result.is_err());
-        let planned_size = u64::from_le_bytes(output.get_ref()[16..24].try_into().unwrap());
-        assert_eq!(output.get_ref().len() as u64, planned_size);
+        let payload_offset = u64::from_le_bytes(output.get_ref()[72..80].try_into().unwrap());
+        assert_eq!(output.get_ref().len() as u64, payload_offset);
     }
     #[test]
     fn streaming_writer_rejects_block_over_reader_default_limit_before_callback() {
