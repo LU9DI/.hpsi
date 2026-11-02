@@ -4,11 +4,15 @@ Status: the multi-tensor import pipeline described here is implemented in the cu
 
 ## Public API
 
-The current public API is:
+The public API includes a compatibility-preserving legacy path and a provenance-aware path:
 
 - `ModelImportPlan::build(source, calibrations, policy)` creates a deterministic plan covering every source tensor.
 - `write_model_import_to_hpsi(source, plan, output, config, block_rows)` writes one multi-tensor HPSI container to a seekable output.
 - `write_model_import_to_hpsi_path(source, plan, destination, config, block_rows)` writes, reopens, verifies, and publishes a filesystem artifact without replacing an existing destination.
+- `ModelImportPlan::build_with_provenance(source, calibrations, policy)` returns a `CalibratedModelImportPlan` that pairs the legacy plan with compact provenance records without duplicating the activation moment vectors.
+- `write_model_import_to_hpsi_calibrated` and `write_model_import_to_hpsi_path_calibrated` persist that provenance. The path variant retains reopen, integrity verification, and no-replace publication.
+
+The original plan and writer APIs remain available and retain their previous metadata behavior.
 
 The single-tensor `SafeTensorFile::encode_f32_tensor_to_hpsi` convenience API remains available. It is not necessary to invoke it repeatedly to create a multi-tensor artifact; the model importer owns that orchestration.
 
