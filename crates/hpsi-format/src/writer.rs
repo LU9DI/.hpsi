@@ -779,6 +779,16 @@ fn open_temporary_file(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+struct TemporaryFileGuard {
+    path: std::path::PathBuf,
+}
+
+impl Drop for TemporaryFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 fn create_temporary_file(parent: &Path) -> Result<(std::path::PathBuf, std::fs::File)> {
     for _ in 0..128 {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -823,6 +833,7 @@ impl ModelWriter {
             .filter(|value| !value.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         let (temporary_path, temporary_file) = create_temporary_file(parent)?;
+        let _temporary_file_guard = TemporaryFileGuard { path: temporary_path.clone() };
         let result = (|| {
             let mut file = temporary_file;
             let stats = Self::write_streaming(&mut file, tensors, |tensor, block, output| {
@@ -842,7 +853,6 @@ impl ModelWriter {
             }
             Ok(stats)
         })();
-        let _ = fs::remove_file(&temporary_path);
         result
     }
 
@@ -866,6 +876,7 @@ impl ModelWriter {
             .unwrap_or_else(|| Path::new("."));
 
         let (temporary_path, temporary_file) = create_temporary_file(parent)?;
+        let _temporary_file_guard = TemporaryFileGuard { path: temporary_path.clone() };
 
         let result = (|| {
             let mut file = temporary_file;
