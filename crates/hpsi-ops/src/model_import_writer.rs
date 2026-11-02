@@ -492,6 +492,12 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
         ));
     }
     if let Some(calibrations) = calibrations {
+        if calibration_by_name
+            .keys()
+            .any(|name| !planned_names.contains(name))
+        {
+            return Err(VqError("calibration provenance references an unknown source tensor"));
+        }
         for planned in &plan.tensors {
             let provenance = calibration_by_name.get(planned.source_name.as_str());
             match (planned.disposition, provenance) {
