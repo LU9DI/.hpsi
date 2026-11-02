@@ -1,5 +1,5 @@
 use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits};
-use hpsi_ops::{HpsiVqLayout, VqConfig, VqMatrix, VqMatrixView, matvec_hpsi_rows};
+use hpsi_ops::{HpsiVqExecutor, HpsiVqLayout, VqConfig, VqMatrix, VqMatrixView, matvec_hpsi_rows};
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -197,27 +197,22 @@ fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
         let tensors = matrix.to_hpsi_tensors(20, 21, 8).unwrap();
         let mut artifact = Cursor::new(Vec::new());
         ModelWriter::write(&mut artifact, &tensors).unwrap();
+        let artifact_bytes = artifact.into_inner();
         let reader = ModelReader::open(
-            Arc::new(MemorySource::new(artifact.into_inner())),
+            Arc::new(MemorySource::new(artifact_bytes.clone())),
             &ReaderLimits::default(),
         )
         .unwrap();
 
+        let layout = HpsiVqLayout {
+            codebook_tensor_id: 20,
+            indices_tensor_id: 21,
+            rows,
+            cols,
+            codebook_count,
+        };
         let mut selected = vec![0.0; 8];
-        matvec_hpsi_rows(
-            &reader,
-            HpsiVqLayout {
-                codebook_tensor_id: 20,
-                indices_tensor_id: 21,
-                rows,
-                cols,
-                codebook_count,
-            },
-            &input,
-            first_row,
-            &mut selected,
-        )
-        .unwrap();
+        matvec_hpsi_rows(&reader, layout, &input, first_row, &mut selected).unwrap();
 
         assert_eq!(selected, expected[first_row..first_row + selected.len()]);
         let codebook_bytes = codebook_count * 16 * 8 * 4;
@@ -225,6 +220,36 @@ fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
         assert_eq!(
             reader.stats().payload_bytes_read,
             (codebook_bytes + one_index_block_bytes) as u64
+        );
+
+        let prepared_reader = ModelReader::open(
+            Arc::new(MemorySource::new(artifact_bytes)),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+        let executor = HpsiVqExecutor::new(&prepared_reader, layout).unwrap();
+        assert_eq!(
+            prepared_reader.stats().payload_bytes_read,
+            codebook_bytes as u64,
+            "prepared executor should load its shared codebook exactly once"
+        );
+
+        // Exercise a partial window inside a larger 8-row payload block.
+        let mut partial = vec![0.0; 3];
+        executor.matvec_rows(&input, 19, &mut partial).unwrap();
+        assert_eq!(partial, expected[19..22]);
+        let bytes_after_first_window = prepared_reader.stats().payload_bytes_read;
+        assert_eq!(
+            bytes_after_first_window,
+            (codebook_bytes + one_index_block_bytes) as u64
+        );
+
+        executor.matvec_rows(&input, 20, &mut partial).unwrap();
+        assert_eq!(partial, expected[20..23]);
+        assert_eq!(
+            prepared_reader.stats().payload_bytes_read - bytes_after_first_window,
+            one_index_block_bytes as u64,
+            "repeated windows must not reload the codebook"
         );
     }
 }
