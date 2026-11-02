@@ -509,16 +509,18 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 metadata_tensor_names.push(clone_import_name(&planned.source_name)?)
             }
             TensorDisposition::QuantizeVq => {
-                metadata_tensor_names.push(
-                    clone_import_name(
-                        planned.codebook_name.as_deref().ok_or(VqError("VQ plan has no codebook name"))?
-                    )?,
-                );
-                metadata_tensor_names.push(
-                    clone_import_name(
-                        planned.indices_name.as_deref().ok_or(VqError("VQ plan has no indices name"))?
-                    )?,
-                );
+                metadata_tensor_names.push(clone_import_name(
+                    planned
+                        .codebook_name
+                        .as_deref()
+                        .ok_or(VqError("VQ plan has no codebook name"))?,
+                )?);
+                metadata_tensor_names.push(clone_import_name(
+                    planned
+                        .indices_name
+                        .as_deref()
+                        .ok_or(VqError("VQ plan has no indices name"))?,
+                )?);
             }
         }
     }
