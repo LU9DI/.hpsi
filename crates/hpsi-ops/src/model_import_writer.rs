@@ -204,6 +204,11 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
             return Err(VqError("source tensor names are not unique"));
         }
     }
+    // The plan is sorted by source name. Build one sorted reference index so
+    // validation and emission resolve each source tensor in O(log n), rather
+    // than rescanning the complete source directory for every planned tensor.
+    let mut source_by_name: Vec<_> = source.tensors().iter().collect();
+    source_by_name.sort_unstable_by(|left, right| left.name.cmp(&right.name));
     let mut planned_names = HashSet::with_capacity(plan.tensors.len());
     let mut generated_names = HashSet::with_capacity(plan.tensors.len().saturating_mul(2));
     let mut previous_name: Option<&str> = None;
@@ -221,11 +226,10 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 "import plan contains duplicate or unknown source tensor names",
             ));
         }
-        let info = source
-            .tensors()
-            .iter()
-            .find(|item| item.name == planned.source_name)
-            .ok_or(VqError("import plan references a missing source tensor"))?;
+        let info_index = source_by_name
+            .binary_search_by(|item| item.name.as_str().cmp(planned.source_name.as_str()))
+            .map_err(|_| VqError("import plan references a missing source tensor"))?;
+        let info = source_by_name[info_index];
         if info.dtype != planned.source_dtype || info.shape != planned.source_shape {
             return Err(VqError(
                 "import plan no longer matches source tensor metadata",
@@ -302,11 +306,10 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     let mut next_id = 0_u32;
 
     for planned in &plan.tensors {
-        let info = source
-            .tensors()
-            .iter()
-            .find(|item| item.name == planned.source_name)
-            .ok_or(VqError("import plan references a missing source tensor"))?;
+        let info_index = source_by_name
+            .binary_search_by(|item| item.name.as_str().cmp(planned.source_name.as_str()))
+            .map_err(|_| VqError("import plan references a missing source tensor"))?;
+        let info = source_by_name[info_index];
         if info.dtype != planned.source_dtype || info.shape != planned.source_shape {
             return Err(VqError(
                 "import plan no longer matches source tensor metadata",
