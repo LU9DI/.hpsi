@@ -87,10 +87,8 @@ fn verify_detects_payload_corruption() {
     let mut bytes = output.into_inner();
     let payload_offset = u64::from_le_bytes(bytes[72..80].try_into().unwrap()) as usize;
     bytes[payload_offset] ^= 0xff;
-    let reader = ModelReader::open(
-        Arc::new(MemorySource::new(bytes)),
-        &ReaderLimits::default(),
-    ).unwrap();
+    let reader =
+        ModelReader::open(Arc::new(MemorySource::new(bytes)), &ReaderLimits::default()).unwrap();
     assert!(matches!(
         reader.verify_all(),
         Err(hpsi_format::FormatError::ChecksumMismatch)
