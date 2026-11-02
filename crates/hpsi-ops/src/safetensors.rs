@@ -60,10 +60,13 @@ impl SafeTensorFile {
         if header_len == 0 || header_len > max_header_bytes {
             return Err(SafeTensorError::HeaderTooLarge);
         }
+        let header_len_u64 =
+            u64::try_from(header_len).map_err(|_| SafeTensorError::HeaderTooLarge)?;
         let data_start = 8_u64
-            .checked_add(header_len as u64)
+            .checked_add(header_len_u64)
             .ok_or(SafeTensorError::InvalidHeader)?;
-        if data_start > source.len().map_err(|_| SafeTensorError::Io)? {
+        let file_len = source.len().map_err(|_| SafeTensorError::Io)?;
+        if data_start > file_len {
             return Err(SafeTensorError::InvalidHeader);
         }
         let mut bytes = Vec::new();
@@ -77,7 +80,6 @@ impl SafeTensorFile {
         let root: Value =
             serde_json::from_slice(&bytes).map_err(|_| SafeTensorError::InvalidHeader)?;
         let object = root.as_object().ok_or(SafeTensorError::InvalidHeader)?;
-        let file_len = source.len().map_err(|_| SafeTensorError::Io)?;
         let data_len = file_len - data_start;
         let mut tensors = Vec::new();
         tensors
@@ -294,7 +296,8 @@ impl SafeTensorFile {
         first_element: u64,
         values: &mut [f32],
     ) -> Result<(), SafeTensorError> {
-        let element_count = values.len() as u64;
+        let element_count =
+            u64::try_from(values.len()).map_err(|_| SafeTensorError::OutOfBounds)?;
         let tensor = self
             .tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
