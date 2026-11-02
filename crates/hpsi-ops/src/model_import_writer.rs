@@ -21,6 +21,9 @@ const MAX_IMPORT_VQ_ITERATIONS: usize = 256;
 const MAX_IMPORT_OUTPUT_TENSORS: usize = 250_000;
 const MAX_IMPORT_OUTPUT_BLOCKS: usize = 1_000_000;
 const MAX_IMPORT_BLOCK_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_IMPORT_TENSOR_LOGICAL_BYTES: u64 = 1_u64 << 40;
+const MAX_IMPORT_DIRECTORY_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES: u64 = 1_u64 << 40;
 
 struct ImportSpool {
     path: PathBuf,
@@ -324,6 +327,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     // creating spools or training any VQ codebooks.
     let mut output_tensor_count = 0usize;
     let mut output_block_count = 0usize;
+    let mut output_payload_bytes = 0u64;
     for planned in &plan.tensors {
         let info_index = source_by_name
             .binary_search_by(|item| item.name.as_str().cmp(planned.source_name.as_str()))
@@ -340,10 +344,14 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                         "empty raw tensors cannot be emitted as HPSI blocks",
                     ));
                 }
-                let blocks = length
-                    .checked_add(COPY_CHUNK_BYTES as u64 - 1)
-                    .ok_or(VqError("raw block count overflow"))?
-                    / COPY_CHUNK_BYTES as u64;
+                if length > MAX_IMPORT_TENSOR_LOGICAL_BYTES {
+                    return Err(VqError("raw tensor exceeds HPSI logical byte limit"));
+                }
+                output_payload_bytes = output_payload_bytes
+                    .checked_add(length)
+                    .ok_or(VqError("total output payload size overflow"))?;
+                let blocks = length / COPY_CHUNK_BYTES as u64
+                    + u64::from(length % COPY_CHUNK_BYTES as u64 != 0);
                 (
                     1usize,
                     usize::try_from(blocks)
@@ -373,6 +381,30 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 if selector_block_bytes == 0 || selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
                     return Err(VqError("selector block exceeds HPSI payload limit"));
                 }
+                let rows_u64 = u64::try_from(rows)
+                    .map_err(|_| VqError("VQ row count exceeds format range"))?;
+                let bytes_per_row_u64 = u64::try_from(bytes_per_row)
+                    .map_err(|_| VqError("VQ selector row size exceeds format range"))?;
+                let indices_bytes = rows_u64
+                    .checked_mul(bytes_per_row_u64)
+                    .ok_or(VqError("VQ selector payload size overflow"))?;
+                let codebook_bytes = u64::try_from(config.codebook_count)
+                    .ok()
+                    .and_then(|count| count.checked_mul(CODEBOOK_SIZE as u64))
+                    .and_then(|count| count.checked_mul(GROUP_SIZE as u64))
+                    .and_then(|count| count.checked_mul(4))
+                    .ok_or(VqError("VQ codebook size overflow"))?;
+                if indices_bytes == 0
+                    || indices_bytes > MAX_IMPORT_TENSOR_LOGICAL_BYTES
+                    || codebook_bytes == 0
+                    || codebook_bytes > MAX_IMPORT_TENSOR_LOGICAL_BYTES
+                {
+                    return Err(VqError("VQ output tensor exceeds HPSI logical byte limit"));
+                }
+                output_payload_bytes = output_payload_bytes
+                    .checked_add(indices_bytes)
+                    .and_then(|total| total.checked_add(codebook_bytes))
+                    .ok_or(VqError("total output payload size overflow"))?;
                 let selector_blocks = rows / block_rows + usize::from(rows % block_rows != 0);
                 (
                     2usize,
@@ -394,6 +426,30 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         if output_block_count > MAX_IMPORT_OUTPUT_BLOCKS {
             return Err(VqError("model import exceeds HPSI block count limit"));
         }
+    }
+
+    let tensor_directory_bytes = u64::try_from(output_tensor_count)
+        .ok()
+        .and_then(|count| count.checked_mul(128))
+        .ok_or(VqError("tensor directory size overflow"))?;
+    let block_directory_bytes = u64::try_from(output_block_count)
+        .ok()
+        .and_then(|count| count.checked_mul(64))
+        .ok_or(VqError("block directory size overflow"))?;
+    let integrity_directory_bytes = u64::try_from(output_block_count)
+        .ok()
+        .and_then(|count| count.checked_add(1))
+        .and_then(|count| count.checked_mul(32))
+        .ok_or(VqError("integrity directory size overflow"))?;
+    let directory_bytes = tensor_directory_bytes
+        .checked_add(block_directory_bytes)
+        .and_then(|total| total.checked_add(integrity_directory_bytes))
+        .ok_or(VqError("total directory size overflow"))?;
+    if directory_bytes > MAX_IMPORT_DIRECTORY_BYTES {
+        return Err(VqError("model import exceeds HPSI directory byte limit"));
+    }
+    if output_payload_bytes > MAX_IMPORT_FILE_BYTES.saturating_sub(128) {
+        return Err(VqError("model import payload exceeds HPSI file size limit"));
     }
 
     let mut tensors = Vec::<StreamingTensorInput>::new();
