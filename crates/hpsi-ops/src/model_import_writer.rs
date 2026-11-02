@@ -94,6 +94,15 @@ impl Drop for ImportSpool {
     }
 }
 
+fn clone_import_name(name: &str) -> Result<String, VqError> {
+    let mut cloned = String::new();
+    cloned
+        .try_reserve_exact(name.len())
+        .map_err(|_| VqError("could not reserve imported tensor name"))?;
+    cloned.push_str(name);
+    Ok(cloned)
+}
+
 fn source_dtype(dtype: &str) -> Result<DType, VqError> {
     match dtype {
         "F16" => Ok(DType::F16),
@@ -497,20 +506,18 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         }));
         match planned.disposition {
             TensorDisposition::PreserveRaw => {
-                metadata_tensor_names.push(planned.source_name.clone())
+                metadata_tensor_names.push(clone_import_name(&planned.source_name)?)
             }
             TensorDisposition::QuantizeVq => {
                 metadata_tensor_names.push(
-                    planned
-                        .codebook_name
-                        .clone()
-                        .ok_or(VqError("VQ plan has no codebook name"))?,
+                    clone_import_name(
+                        planned.codebook_name.as_deref().ok_or(VqError("VQ plan has no codebook name"))?
+                    )?,
                 );
                 metadata_tensor_names.push(
-                    planned
-                        .indices_name
-                        .clone()
-                        .ok_or(VqError("VQ plan has no indices name"))?,
+                    clone_import_name(
+                        planned.indices_name.as_deref().ok_or(VqError("VQ plan has no indices name"))?
+                    )?,
                 );
             }
         }
@@ -599,7 +606,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 };
                 tensors.push(StreamingTensorInput {
                     tensor_id: next_id,
-                    name: planned.source_name.clone(),
+                    name: clone_import_name(&planned.source_name)?,
                     dtype: source_dtype(&planned.source_dtype)?,
                     dimensions,
                     block_lengths: lengths,
@@ -698,7 +705,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     .ok_or(VqError("VQ plan has no indices name"))?;
                 tensors.push(StreamingTensorInput {
                     tensor_id: next_id,
-                    name: codebook_name.to_owned(),
+                    name: clone_import_name(codebook_name)?,
                     dtype: DType::F32,
                     dimensions: vec![
                         config.codebook_count as u64,
@@ -740,7 +747,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 }
                 tensors.push(StreamingTensorInput {
                     tensor_id: next_id,
-                    name: indices_name.to_owned(),
+                    name: clone_import_name(indices_name)?,
                     dtype: DType::Opaque,
                     dimensions: vec![total_indices],
                     block_lengths: lengths,
