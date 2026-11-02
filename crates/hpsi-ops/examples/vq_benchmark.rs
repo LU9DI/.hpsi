@@ -30,7 +30,6 @@ fn benchmark_shape_weights(rows: usize, cols: usize, seed: u64) -> Vec<f32> {
 
 fn dense_matvec_shape(
     weights: &[f32],
-    rows: usize,
     cols: usize,
     input: &[f32],
     output: &mut [f32],
@@ -49,7 +48,7 @@ fn measure_dense_shape(weights: &[f32], rows: usize, cols: usize, input: &[f32])
     let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
     for _ in 0..LATENCY_REPETITIONS {
         let start = Instant::now();
-        dense_matvec_shape(weights, rows, cols, input, &mut output);
+        dense_matvec_shape(weights, cols, input, &mut output);
         durations.push(start.elapsed());
         black_box(output[0]);
     }
