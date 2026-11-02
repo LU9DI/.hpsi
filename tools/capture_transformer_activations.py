@@ -76,6 +76,7 @@ def main() -> int:
     model.eval()
 
     accumulators: dict[str, dict[str, Any]] = {}
+    module_names: dict[str, str] = {}
     handles = []
 
     def make_hook(module_name: str):
@@ -107,6 +108,12 @@ def main() -> int:
 
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Linear):
+            tensor_name = source_tensor_name(name)
+            if tensor_name in module_names:
+                raise SystemExit(
+                    f"multiple Linear modules map to the same Safetensors key: {tensor_name}"
+                )
+            module_names[tensor_name] = name
             handles.append(module.register_forward_pre_hook(make_hook(name)))
 
     if not handles:
@@ -189,7 +196,7 @@ def main() -> int:
         destination = args.output_dir / filename
         destination.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
         manifest_layers.append({
-            "module_name": layer_name.removesuffix(".weight") if layer_name.endswith(".weight") else "",
+            "module_name": module_names[layer_name],
             "source_tensor_name": layer_name,
             "file": filename,
             "sample_count": count,
