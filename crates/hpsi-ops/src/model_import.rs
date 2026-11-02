@@ -271,11 +271,14 @@ mod tests {
     fn rejects_calibration_for_unknown_source_tensor() {
         let mut invalid = calibration();
         invalid.layer_name = "missing.weight".into();
-        assert!(ModelImportPlan::build(
-            &source(),
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source(),
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
     }
 
     #[test]
