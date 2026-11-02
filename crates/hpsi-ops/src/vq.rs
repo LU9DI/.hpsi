@@ -85,7 +85,8 @@ impl VqMatrix {
             samples.push(vector);
         }
 
-        let mut codebooks = Vec::with_capacity(config.codebook_count);
+        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> =
+            Vec::with_capacity(config.codebook_count);
         for stage in 0..config.codebook_count {
             let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
                 .iter()
