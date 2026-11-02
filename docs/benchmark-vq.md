@@ -65,4 +65,8 @@ The additive codebook reserves a zero residual centroid, so its weight-domain pe
 
 ## Multi-stage residual-codebook sweep
 
-The encoder now supports one through four additive codebooks. Each residual stage is trained against the residual left by all preceding stages and reserves a zero centroid. Selectors are nibble-packed at four bits each; the row-streamed HPSI path reads only blocks intersecting the requested output rows. The deterministic benchmark now reports all four rates on the same matrix and held-out inputs. Until the updated CI run is recorded here, three- and four-stage quality/latency figures are intentionally left unreported.
+The encoder now supports one through four additive codebooks. Each residual stage is trained against the residual left by all preceding stages and reserves a zero centroid. Selectors are nibble-packed at four bits each; the row-streamed HPSI path reads only blocks intersecting the requested output rows.
+
+The deterministic benchmark now reports all four rates on the same matrix and held-out inputs. It also measures a 32-row window through `ModelReader` over a `MemorySource`, recording p50/p95 and payload bytes read per window. This isolates container parsing, block selection, and direct computation without claiming physical-storage latency. The in-memory VQ operator, HPSI row-window path, and dense F32 reference are reported separately.
+
+Until the updated CI run is recorded here, three- and four-stage quality/latency figures are intentionally left unreported.
