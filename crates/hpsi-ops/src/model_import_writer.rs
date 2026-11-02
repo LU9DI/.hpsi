@@ -678,14 +678,17 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 };
                 // Selector rows were emitted first; append the small codebook and
                 // reference each payload by its independent spool offset.
+                let rows_u64 = u64::try_from(rows)
+                    .map_err(|_| VqError("VQ row count exceeds format range"))?;
+                let bytes_per_row_u64 = u64::try_from(bytes_per_row)
+                    .map_err(|_| VqError("VQ selector row size exceeds format range"))?;
+                let total_indices = rows_u64
+                    .checked_mul(bytes_per_row_u64)
+                    .ok_or(VqError("selector payload size overflow"))?;
                 let indices_start = spool
                     .seek(SeekFrom::End(0))
                     .map_err(|_| VqError("could not inspect VQ spool"))?
-                    .checked_sub(
-                        (rows as u64)
-                            .checked_mul(bytes_per_row as u64)
-                            .ok_or(VqError("selector payload size overflow"))?,
-                    )
+                    .checked_sub(total_indices)
                     .ok_or(VqError("selector spool length underflow"))?;
                 let codebook_start = spool
                     .seek(SeekFrom::End(0))
@@ -716,7 +719,8 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     name: clone_import_name(codebook_name)?,
                     dtype: DType::F32,
                     dimensions: vec![
-                        config.codebook_count as u64,
+                        u64::try_from(config.codebook_count)
+                            .map_err(|_| VqError("VQ codebook count exceeds format range"))?,
                         CODEBOOK_SIZE as u64,
                         GROUP_SIZE as u64,
                     ],
@@ -727,10 +731,9 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     .checked_add(1)
                     .ok_or(VqError("HPSI tensor ID overflow"))?;
 
-                let total_indices = (rows as u64)
-                    .checked_mul(bytes_per_row as u64)
-                    .ok_or(VqError("selector payload size overflow"))?;
-                let selector_block_count = rows / block_rows + usize::from(rows % block_rows != 0);
+                let selector_block_count = (rows / block_rows)
+                    .checked_add(usize::from(rows % block_rows != 0))
+                    .ok_or(VqError("selector block count overflow"))?;
                 let mut lengths = Vec::new();
                 lengths
                     .try_reserve_exact(selector_block_count)
@@ -743,8 +746,10 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 let mut byte_offset = indices_start;
                 while first_row < rows {
                     let count = block_rows.min(rows - first_row);
-                    let length = (count as u64)
-                        .checked_mul(bytes_per_row as u64)
+                    let count_u64 = u64::try_from(count)
+                        .map_err(|_| VqError("selector block row count exceeds format range"))?;
+                    let length = count_u64
+                        .checked_mul(bytes_per_row_u64)
                         .ok_or(VqError("selector block size overflow"))?;
                     lengths.push(length);
                     offsets.push(byte_offset);
