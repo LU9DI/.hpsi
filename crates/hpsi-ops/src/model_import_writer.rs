@@ -9,11 +9,11 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
