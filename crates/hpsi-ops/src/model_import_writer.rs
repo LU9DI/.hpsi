@@ -497,9 +497,10 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                         return Err(VqError("calibrated VQ tensor is missing persisted provenance"));
                     }
                 }
-                (TensorDisposition::PreserveRaw, _) => {
+                (TensorDisposition::PreserveRaw, Some(_)) => {
                     return Err(VqError("raw-preserved tensor cannot have calibration provenance"));
                 }
+                (TensorDisposition::PreserveRaw, None) => {}
             }
         }
         if calibration_by_name.len() > plan.tensors.len() {
