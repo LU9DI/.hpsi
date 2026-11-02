@@ -10,6 +10,7 @@ pub struct SafeTensorFile {
     source: Arc<dyn RandomAccessSource>,
     data_start: u64,
     tensors: Vec<SafeTensorInfo>,
+    tensor_name_order: Vec<usize>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SafeTensorInfo {
@@ -138,12 +139,27 @@ impl SafeTensorFile {
         if expected_offset != data_len {
             return Err(SafeTensorError::InvalidTensor);
         }
+        let mut tensor_name_order: Vec<usize> = (0..tensors.len()).collect();
+        tensor_name_order.sort_unstable_by(|&left, &right| {
+            tensors[left].name.cmp(&tensors[right].name)
+        });
         Ok(Self {
             source,
             data_start,
             tensors,
+            tensor_name_order,
         })
     }
+    fn tensor_by_name(&self, name: &str) -> Option<&SafeTensorInfo> {
+        let position = self
+            .tensor_name_order
+            .binary_search_by(|&index| self.tensors[index].name.as_str().cmp(name))
+            .ok()?;
+        self.tensor_name_order
+            .get(position)
+            .and_then(|&index| self.tensors.get(index))
+    }
+
     /// Quantize a rank-2 F32/F16/BF16 Safetensors tensor and write it
     /// directly into an HPSI container. Source reads are bounded to samples
     /// and one row; packed selectors are spooled to a managed temporary file.
@@ -154,10 +170,7 @@ impl SafeTensorFile {
         config: VqConfig,
         block_rows: usize,
     ) -> Result<WriterStats, VqError> {
-        let tensor = self
-            .tensors
-            .iter()
-            .find(|tensor| tensor.name == tensor_name)
+        let tensor = self.tensor_by_name(tensor_name)
             .ok_or(VqError("Safetensors tensor was not found"))?;
         if tensor.shape.len() != 2 || !matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16") {
             return Err(VqError(
@@ -196,10 +209,7 @@ impl SafeTensorFile {
         // Keep memory use bounded even when a caller accidentally requests a
         // very large chunk. Smaller caller-selected chunks remain respected.
         let chunk_bytes = chunk_bytes.min(64 * 1024);
-        let tensor = self
-            .tensors
-            .iter()
-            .find(|tensor| tensor.name == name)
+        let tensor = self.tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         let length = tensor
             .data_end
