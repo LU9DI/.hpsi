@@ -486,11 +486,19 @@ impl VqMatrix {
             .flush()
             .map_err(|_| VqError("could not flush selector spool"))?;
 
-        let mut codebook_bytes = Vec::with_capacity(codebook.len() * 4);
+        let codebook_byte_len = codebook
+            .len()
+            .checked_mul(4)
+            .ok_or(VqError("VQ codebook byte length overflow"))?;
+        let mut codebook_bytes = Vec::new();
+        codebook_bytes
+            .try_reserve_exact(codebook_byte_len)
+            .map_err(|_| VqError("could not allocate VQ codebook bytes"))?;
         for value in &codebook {
             codebook_bytes.extend_from_slice(&value.to_le_bytes());
         }
-        let codebook_len = codebook_bytes.len() as u64;
+        let codebook_len = u64::try_from(codebook_bytes.len())
+            .map_err(|_| VqError("VQ codebook byte length exceeds format limits"))?;
         let mut index_block_lengths = Vec::new();
         let mut first_row = 0usize;
         while first_row < rows {
