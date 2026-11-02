@@ -1,56 +1,58 @@
 # Full-model Safetensors import: design and invariants
 
-Status: implementation plan for the next importer layer. The current tensor-level importer remains the only production API; this document does not claim that complete-model import is implemented.
+Status: the multi-tensor import pipeline described here is implemented in the current HPSI ops crate. This document records its present contract and the remaining boundaries; it is not a claim of general model-runtime compatibility.
 
-## Current boundary
+## Public API
 
-`SafeTensorFile::open` validates the Safetensors header, tensor byte ranges, element counts, and supported source dtypes. `encode_f32_tensor_to_hpsi` currently accepts one rank-2 `F32`, `F16`, or `BF16` tensor and writes a two-tensor VQ representation (`hpsi.vq.codebook` and `hpsi.vq.indices`). The writer requires the complete tensor directory before payload emission and requires strictly increasing tensor IDs and unique names.
+The current public API is:
 
-Consequently, invoking the single-tensor API repeatedly against one output is not a valid multi-tensor strategy: each invocation expects an empty output and creates its own container. Concatenating those containers would not create a valid HPSI model.
+- `ModelImportPlan::build(source, calibrations, policy)` creates a deterministic plan covering every source tensor.
+- `write_model_import_to_hpsi(source, plan, output, config, block_rows)` writes one multi-tensor HPSI container to a seekable output.
+- `write_model_import_to_hpsi_path(source, plan, destination, config, block_rows)` writes, reopens, verifies, and publishes a filesystem artifact without replacing an existing destination.
 
-## Required model-import contract
+The single-tensor `SafeTensorFile::encode_f32_tensor_to_hpsi` convenience API remains available. It is not necessary to invoke it repeatedly to create a multi-tensor artifact; the model importer owns that orchestration.
 
-A future `encode_model_to_hpsi` API should accept a source file, VQ configuration, block sizing, and an explicit policy for tensors that cannot be VQ encoded. It must produce exactly one HPSI container and preserve, for every source tensor:
+## Current import contract
 
-- original tensor name (or a reversible, collision-checked mapping);
-- original shape and source dtype in model-level provenance;
-- deterministic source ordering independent of JSON object iteration;
-- an explicit outcome: quantized, copied losslessly, or skipped with a machine-readable reason.
+Planning sorts source tensors by exact name and requires complete, unique source coverage. HPSI import currently accepts non-scalar tensors of rank 1 through 8 with non-zero dimensions. Safetensors scalar and zero-sized tensors are rejected because the current HPSI tensor descriptor/import contract does not represent them.
 
-The importer must not silently drop unsupported tensors. The default policy should fail closed when a tensor would otherwise be omitted. A caller may opt into lossless raw preservation for unsupported tensors; skipping tensors is not an accepted import policy.
+The current VQ-quantizable set is deliberately narrow:
 
-## Streaming architecture
+- rank-2 tensors;
+- source dtype `F32`, `F16`, or `BF16`;
+- feature dimension divisible by the VQ group size.
 
-The current writer needs all `StreamingTensorInput` descriptors before writing the header and directories. The safe multi-tensor design is therefore a two-phase pipeline:
+All other eligible-to-preserve tensors follow the explicit policy:
 
-1. **Plan and stage:** enumerate source tensors in deterministic order; validate names, shapes, dtypes, dimensions, and policy; encode each supported matrix once; stage only payload streams in a managed seekable spool; record each staged range, block lengths, generated tensor descriptors, and source-to-output mapping.
-2. **Publish:** assign globally unique, strictly increasing tensor IDs; construct the complete descriptor list; call `ModelWriter::write_streaming` once; serve each requested output block from its staged range using bounded buffers.
+- `UnsupportedTensorPolicy::Reject` fails planning if any source tensor cannot be VQ-quantized.
+- `UnsupportedTensorPolicy::AllowRawPreservation` preserves each non-quantized tensor's original payload bytes without decoding, casting, or omitting it.
 
-Staging must be bounded by disk capacity rather than model size in RAM. Each staged range must use checked arithmetic, exact byte lengths, and an ownership guard that closes the file before cleanup (including on Windows). The destination should be published atomically only after the writer has completed and the resulting container passes `ModelReader::verify_all`.
+This policy name does not mean every raw-preserved tensor is an unsupported dtype: rank, shape, or dtype can make a tensor ineligible for VQ.
 
-## Tensor naming and identity
+## Dtype and provenance mapping
 
-Generated VQ tensors must be namespaced by the original tensor identity, for example `<source-name>.hpsi_vq.codebook` and `<source-name>.hpsi_vq.indices`. The implementation must reject collisions with source names and with other generated names before creating the destination. IDs should be allocated from a single monotonic counter across the entire output; per-tensor reuse of IDs 0 and 1 is invalid.
+Dtypes with native HPSI representations retain their native HPSI dtype: `U8`, `I8`, `I16`, `F16`, `BF16`, `I32`, `F32`, `I64`, and `F64`.
 
-The metadata should include a versioned import manifest mapping source tensor names to generated tensor names, source shape/dtype, and the selected policy. The reader must continue to treat unknown manifest fields as optional metadata; the format version should not be bumped merely to add an optional manifest field.
+Safetensors types without a corresponding native HPSI scalar dtype are stored as `OPAQUE` byte streams. This currently includes `BOOL`, `F4`, `F6_E2M3`, `F6_E3M2`, the supported FP8 variants, `U16`, `U32`, `U64`, and `C64`. Their bytes are preserved exactly; this does not provide native arithmetic or semantic decoding for those source types.
 
-## Calibration integration
+For an `OPAQUE` output tensor, the HPSI dimensions describe the preserved byte stream (currently a one-dimensional byte length). The source dtype and original shape remain available in `metadata.user.source_tensors` as `source_dtype` and `source_shape`. Native HPSI dtypes retain the original source dimensions. Each provenance entry also records the source name and disposition (`quantize_vq` or `preserve_raw`).
 
-Activation calibration is keyed by exact layer/tensor name and declares a feature count. Before activation-aware quantization, the importer must require an exact name match and require `calibration.features == source_tensor.shape[1]`. It must reject duplicate calibration entries, mismatched dimensions, non-finite values, and ambiguous aliases. A missing calibration may use the explicitly selected uncalibrated path; it must never be represented as a zero-valued calibration.
+The format contract defines `OPAQUE` as a byte stream without dimension-derived element sizing. It may be used for lossless source-format preservation when descriptive metadata records the external type and shape. Consumers must not infer numeric semantics from `OPAQUE`.
 
-The activation-aware streaming encoder should share the same staging and HPSI writer path as ordinary VQ. Calibration provenance (sample count, model revision, dataset digest, statistic version) belongs in the import manifest, while the full per-feature moment vector need not be copied into the model unless a later runtime feature requires it.
+## Streaming and publication
 
-## Validation gates
+The importer stages intermediate payloads in a managed disk-backed spool, builds the complete tensor and block descriptors, then calls the streaming HPSI writer once. Source reads and spool transfers use bounded buffers; the full dense source model is not materialized in RAM by this orchestration. VQ training samples, one source row, codebooks, directory metadata, and bounded transfer buffers still consume memory.
 
-Before describing complete-model import as available, add tests for:
+The path API creates temporary files with exclusive creation, verifies the completed HPSI artifact by reopening it and running `ModelReader::verify_all`, then publishes without overwriting an existing destination. Publication uses a same-directory hard link where supported. A failure from the generic `Write + Seek` API may leave a partial artifact in the caller's output; callers requiring all-or-nothing filesystem publication should use the path API.
 
-- two or more quantized source tensors in one HPSI container, with unique names and monotonically increasing IDs;
-- deterministic output planning when Safetensors header keys arrive in a different order;
-- duplicate generated-name and source-name collision rejection;
-- exact calibration-name and feature-count matching;
-- mixed supported and unsupported dtypes under fail-closed and lossless raw-preservation policies;
-- bounded spool reads/writes across block boundaries;
-- failure during staging and during final writing leaves no published partial destination and cleans temporary files;
-- `ModelReader::verify_all` succeeds for the final artifact and all manifest mappings resolve.
+## Calibration
 
-The tests should assert metadata and payload semantics, not only tensor counts. Performance and peak-RSS claims require execution on representative model files and must not be inferred from unit tests.
+Calibration is matched by exact source tensor name and feature count. Duplicate or unknown calibration names, invalid dimensions, non-finite or negative moments, and calibration for non-quantizable tensors are rejected. The calibration moments influence VQ encoding.
+
+The current import provenance records source tensor metadata and disposition, but does not yet persist the complete calibration provenance (such as dataset digest, model revision, and statistic version) in the output manifest. That remains a separate metadata enhancement and must not be implied by the presence of activation-aware encoding.
+
+## Validation coverage and remaining limits
+
+The implementation includes tests for deterministic planning, complete source coverage, name collisions, mixed VQ/raw tensors, calibration validation, multi-tensor output, raw payload preservation across all 22 currently supported Safetensors dtypes, HPSI reopening, and integrity verification. CI checks formatting, Clippy, and tests on Ubuntu, Windows, and macOS.
+
+These tests establish implementation behavior for their fixtures; they do not establish compatibility with every model architecture or production-scale memory/performance claims. Representative-model testing, model-specific tensor eligibility policies, broader native dtype support, and persisted calibration provenance remain future work.
