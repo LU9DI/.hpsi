@@ -269,7 +269,7 @@ impl<'a> VqMatrixView<'a> {
             ));
         }
         if selector_count % 2 != 0
-            && packed_indices.last().is_some_and(|last| last & 0xf0 != 0)
+            && packed_indices.last().is_some_and(|last| *last & 0xf0 != 0)
         {
             return Err(VqError("unused packed selector nibble must be zero"));
         }
