@@ -594,4 +594,4 @@ The initial reader implementation now includes:
 - streaming CRC32C verification with a fixed 64 KiB working buffer;
 - read statistics and integration fixtures proving that open performs zero payload reads.
 
-The latest CI run for the initial Rust foundation passed on Windows, macOS, and Ubuntu. The expanded directory-reader implementation is newer and is awaiting its own CI result; it is not yet declared complete.
+The latest CI run for the initial Rust foundation passed on Windows, macOS, and Ubuntu. The expanded directory-reader implementation has now passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy, and tests. Feature 001 remains in progress because writer, CLI commands, fuzzing, and broader adversarial coverage are still missing.
