@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 
 /// A deterministic, validated plan for a multi-tensor Safetensors import.
 /// Planning does not write output; it prevents silent tensor loss and name collisions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModelImportPlan {
     pub tensors: Vec<PlannedTensor>,
 }
