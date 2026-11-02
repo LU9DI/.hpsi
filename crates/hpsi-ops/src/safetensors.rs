@@ -126,10 +126,15 @@ impl SafeTensorFile {
             });
         }
         tensors.sort_by_key(|t| t.data_start);
-        for pair in tensors.windows(2) {
-            if pair[0].data_end > pair[1].data_start {
+        let mut expected_offset = 0_u64;
+        for tensor in &tensors {
+            if tensor.data_start != expected_offset {
                 return Err(SafeTensorError::InvalidTensor);
             }
+            expected_offset = tensor.data_end;
+        }
+        if expected_offset != data_len {
+            return Err(SafeTensorError::InvalidTensor);
         }
         Ok(Self {
             source,
@@ -140,6 +145,70 @@ impl SafeTensorFile {
     pub fn tensors(&self) -> &[SafeTensorInfo] {
         &self.tensors
     }
+    /// Read an arbitrary contiguous element range from a rank-1 or rank-2 floating tensor.
+    /// The returned allocation is bounded by the requested range, not the full tensor size.
+    pub fn read_f32_elements(
+        &self,
+        name: &str,
+        first_element: u64,
+        element_count: u64,
+    ) -> Result<Vec<f32>, SafeTensorError> {
+        let tensor = self
+            .tensors
+            .iter()
+            .find(|tensor| tensor.name == name)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        if !(1..=2).contains(&tensor.shape.len()) {
+            return Err(SafeTensorError::UnsupportedDtype);
+        }
+        let width = match tensor.dtype.as_str() {
+            "F32" => 4_u64,
+            "F16" | "BF16" => 2_u64,
+            _ => return Err(SafeTensorError::UnsupportedDtype),
+        };
+        let total_elements = tensor.shape.iter().try_fold(1_u64, |total, &dimension| {
+            total.checked_mul(dimension).ok_or(SafeTensorError::InvalidTensor)
+        })?;
+        let end_element = first_element
+            .checked_add(element_count)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        if end_element > total_elements {
+            return Err(SafeTensorError::OutOfBounds);
+        }
+        let byte_count = element_count
+            .checked_mul(width)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        let allocation = usize::try_from(byte_count).map_err(|_| SafeTensorError::Allocation)?;
+        let relative_offset = first_element
+            .checked_mul(width)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        let absolute_offset = self.data_start
+            .checked_add(tensor.data_start)
+            .and_then(|offset| offset.checked_add(relative_offset))
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(allocation).map_err(|_| SafeTensorError::Allocation)?;
+        bytes.resize(allocation, 0);
+        self.source.read_exact_at(absolute_offset, &mut bytes).map_err(|_| SafeTensorError::Io)?;
+
+        let values: Vec<f32> = match tensor.dtype.as_str() {
+            "F32" => bytes.chunks_exact(4).map(|chunk| {
+                f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+            }).collect(),
+            "BF16" => bytes.chunks_exact(2).map(|chunk| {
+                f32::from_bits(u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16)
+            }).collect(),
+            "F16" => bytes.chunks_exact(2).map(|chunk| {
+                f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]]))
+            }).collect(),
+            _ => return Err(SafeTensorError::UnsupportedDtype),
+        };
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(SafeTensorError::InvalidTensor);
+        }
+        Ok(values)
+    }
+
     /// Read a row window of a rank-2 F32 tensor. Other dtypes are rejected, never silently cast.
     pub fn read_f32_rows(
         &self,
@@ -210,6 +279,9 @@ impl SafeTensorFile {
                 .map(|b| f16_to_f32(u16::from_le_bytes([b[0], b[1]])))
                 .collect()
         };
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(SafeTensorError::InvalidTensor);
+        }
         Ok(values)
     }
 }
@@ -271,6 +343,52 @@ mod tests {
                 .unwrap();
         assert_eq!(file.read_f32_rows("w", 1, 1).unwrap(), vec![3.0, 4.0]);
     }
+
+
+    #[test]
+    fn reads_arbitrary_element_windows_and_rejects_non_finite_values() {
+        let header = br#"{"w":{"dtype":"F32","shape":[2,3],"data_offsets":[0,24]}}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header);
+        for value in [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        let file = SafeTensorFile::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+            4096,
+        ).unwrap();
+        assert_eq!(file.read_f32_elements("w", 2, 3).unwrap(), vec![3.0, 4.0, 5.0]);
+        assert!(matches!(file.read_f32_elements("w", 5, 2), Err(SafeTensorError::OutOfBounds)));
+
+        let header = br#"{"w":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&f32::INFINITY.to_le_bytes());
+        let file = SafeTensorFile::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+            4096,
+        ).unwrap();
+        assert!(matches!(file.read_f32_elements("w", 0, 1), Err(SafeTensorError::InvalidTensor)));
+    }
+
+    #[test]
+    fn rejects_gaps_and_trailing_payload_bytes() {
+        for (offsets, payload) in [("[0,1]", vec![7_u8, 8]), ("[0,1]", vec![7_u8, 8])] {
+            let header = format!(r#"{{"w":{{"dtype":"U8","shape":[1],"data_offsets":{offsets}}}}}"#);
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            bytes.extend_from_slice(&payload);
+            let file = SafeTensorFile::open(
+                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+                4096,
+            );
+            assert!(matches!(file, Err(SafeTensorError::InvalidTensor)));
+        }
+    }
+
     #[test]
     fn rejects_overlapping_tensor_ranges() {
         let header=br#"{"a":{"dtype":"U8","shape":[2],"data_offsets":[0,2]},"b":{"dtype":"U8","shape":[2],"data_offsets":[1,3]}}"#;
