@@ -355,7 +355,9 @@ impl<'a> HpsiVqExecutor<'a> {
             codebook_count,
         } = layout;
         if rows == 0 || cols == 0 || cols % 16 != 0 || !(1..=4).contains(&codebook_count) {
-            return Err(VqError("HPSI VQ layout has invalid shape or codebook count"));
+            return Err(VqError(
+                "HPSI VQ layout has invalid shape or codebook count",
+            ));
         }
 
         let codebook_tensor = reader
@@ -369,7 +371,9 @@ impl<'a> HpsiVqExecutor<'a> {
             || codebook_tensor.dimensions[2] != GROUP_SIZE as u64
             || codebook_tensor.logical_nbytes != expected_codebook_bytes as u64
         {
-            return Err(VqError("HPSI codebook tensor descriptor does not match VQ layout"));
+            return Err(VqError(
+                "HPSI codebook tensor descriptor does not match VQ layout",
+            ));
         }
 
         let mut codebook_bytes = Vec::with_capacity(expected_codebook_bytes);
@@ -406,7 +410,9 @@ impl<'a> HpsiVqExecutor<'a> {
             || index_tensor.dimensions[0] != expected_index_bytes as u64
             || index_tensor.logical_nbytes != expected_index_bytes as u64
         {
-            return Err(VqError("HPSI index tensor descriptor does not match VQ layout"));
+            return Err(VqError(
+                "HPSI index tensor descriptor does not match VQ layout",
+            ));
         }
 
         let mut index_blocks = Vec::with_capacity(index_tensor.block_count as usize);
@@ -431,7 +437,9 @@ impl<'a> HpsiVqExecutor<'a> {
                 .checked_add(block_rows)
                 .ok_or(VqError("HPSI index block row range overflow"))?;
             if first_row != next_row || end_row > rows {
-                return Err(VqError("HPSI index blocks are not a contiguous row partition"));
+                return Err(VqError(
+                    "HPSI index blocks are not a contiguous row partition",
+                ));
             }
             index_blocks.push(HpsiIndexBlock {
                 block_id,
@@ -466,7 +474,9 @@ impl<'a> HpsiVqExecutor<'a> {
                 .checked_add(output.len())
                 .is_none_or(|end| end > self.layout.rows)
         {
-            return Err(VqError("requested HPSI matvec row range or input shape is invalid"));
+            return Err(VqError(
+                "requested HPSI matvec row range or input shape is invalid",
+            ));
         }
 
         let requested_end = first_row + output.len();
@@ -509,7 +519,9 @@ impl<'a> HpsiVqExecutor<'a> {
         }
 
         if written_rows != output.len() {
-            return Err(VqError("HPSI index blocks do not cover the requested output rows"));
+            return Err(VqError(
+                "HPSI index blocks do not cover the requested output rows",
+            ));
         }
         Ok(())
     }
