@@ -201,7 +201,10 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     // The plan is a public data structure and may have been constructed or
     // modified by a caller. Revalidate its full source coverage, ordering,
     // disposition fields and generated names before creating temporary files.
-    let mut source_names = HashSet::with_capacity(source.tensors().len());
+    let mut source_names = HashSet::new();
+    source_names
+        .try_reserve(source.tensors().len())
+        .map_err(|_| VqError("could not reserve source tensor name index"))?;
     for info in source.tensors() {
         if !source_names.insert(info.name.as_str()) {
             return Err(VqError("source tensor names are not unique"));
@@ -212,8 +215,19 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     // than rescanning the complete source directory for every planned tensor.
     let mut source_by_name: Vec<_> = source.tensors().iter().collect();
     source_by_name.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-    let mut planned_names = HashSet::with_capacity(plan.tensors.len());
-    let mut generated_names = HashSet::with_capacity(plan.tensors.len().saturating_mul(2));
+    let mut planned_names = HashSet::new();
+    planned_names
+        .try_reserve(plan.tensors.len())
+        .map_err(|_| VqError("could not reserve planned tensor name index"))?;
+    let generated_capacity = plan
+        .tensors
+        .len()
+        .checked_mul(2)
+        .ok_or(VqError("generated tensor name count overflow"))?;
+    let mut generated_names = HashSet::new();
+    generated_names
+        .try_reserve(generated_capacity)
+        .map_err(|_| VqError("could not reserve generated tensor name index"))?;
     let mut previous_name: Option<&str> = None;
     for planned in &plan.tensors {
         if previous_name.is_some_and(|previous| previous >= planned.source_name.as_str()) {
