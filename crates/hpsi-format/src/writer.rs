@@ -865,24 +865,7 @@ impl ModelWriter {
             .filter(|value| !value.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
 
-        let (temporary_path, temporary_file) = {
-            let mut created = None;
-            for _ in 0..128 {
-                let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
-                match open_temporary_file(&candidate) {
-                    Ok(file) => {
-                        created = Some((candidate, file));
-                        break;
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(error) => return Err(ioerr(error)),
-                }
-            }
-            created.ok_or(FormatError::Io(
-                "could not allocate a unique temporary output file".into(),
-            ))?
-        };
+        let (temporary_path, temporary_file) = create_temporary_file(parent)?;
 
         let result = (|| {
             let mut file = temporary_file;
