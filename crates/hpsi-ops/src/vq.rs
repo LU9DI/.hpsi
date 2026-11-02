@@ -311,7 +311,7 @@ impl VqMatrix {
                 .map_err(|_| VqError("could not allocate VQ residual samples"))?;
             for sample in &samples {
                 residual_samples
-                    .push(beam_search_additive(sample, &codebooks, config.beam_width).0);
+                    .push(beam_search_additive(sample, &codebooks, config.beam_width)?.0);
             }
             codebooks.push(fit_codebook(
                 &residual_samples,
@@ -346,7 +346,7 @@ impl VqMatrix {
             for (group_in_row, chunk) in row_buffer.chunks_exact(GROUP_SIZE).enumerate() {
                 let mut residual = [0.0_f32; GROUP_SIZE];
                 residual.copy_from_slice(chunk);
-                let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
+                let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width)?;
                 for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                     let selector = group_in_row * config.codebook_count + stage;
                     packed_row[selector / 2] |= *code << ((selector % 2) * 4);
@@ -826,7 +826,7 @@ impl VqMatrix {
                 .map_err(|_| VqError("could not allocate VQ residual samples"))?;
             for sample in &samples {
                 residual_samples
-                    .push(beam_search_additive(sample, &codebooks, config.beam_width).0);
+                    .push(beam_search_additive(sample, &codebooks, config.beam_width)?.0);
             }
             // Residual stages reserve a zero centroid. Adding a stage therefore
             // cannot increase per-group reconstruction error in weight space.
@@ -854,7 +854,7 @@ impl VqMatrix {
             for (value, scale) in residual.iter_mut().zip(dimension_scale) {
                 *value *= scale;
             }
-            let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
+            let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width)?;
             for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                 let selector = group_index * config.codebook_count + stage;
                 let byte_index = selector / 2;
@@ -1311,17 +1311,40 @@ fn beam_search_additive(
     vector: &[f32; GROUP_SIZE],
     codebooks: &[Vec<[f32; GROUP_SIZE]>],
     beam_width: usize,
-) -> ([f32; GROUP_SIZE], [u8; 4]) {
+) -> Result<([f32; GROUP_SIZE], [u8; 4]), VqError> {
+    if !(1..=4).contains(&codebooks.len()) && !codebooks.is_empty() {
+        return Err(VqError("additive beam search supports at most four codebooks"));
+    }
+    if !(1..=256).contains(&beam_width) {
+        return Err(VqError("beam width must be between 1 and 256"));
+    }
+
     // Keep the best partial additive reconstructions after every stage.
-    let mut beam = vec![(0.0_f32, *vector, [0_u8; 4])];
+    let mut beam = Vec::new();
+    beam.try_reserve_exact(1)
+        .map_err(|_| VqError("could not allocate VQ search beam"))?;
+    beam.push((0.0_f32, *vector, [0_u8; 4]));
+
     for (stage, codebook) in codebooks.iter().enumerate() {
-        let mut expanded = Vec::with_capacity(beam.len() * codebook.len());
+        if codebook.is_empty() || codebook.len() > CODEBOOK_SIZE {
+            return Err(VqError("additive codebook has an invalid centroid count"));
+        }
+        let expanded_capacity = beam
+            .len()
+            .checked_mul(codebook.len())
+            .ok_or(VqError("VQ beam expansion size overflow"))?;
+        let mut expanded = Vec::new();
+        expanded
+            .try_reserve_exact(expanded_capacity)
+            .map_err(|_| VqError("could not allocate expanded VQ search beam"))?;
+
         for (_, residual, codes) in &beam {
             for (code, centroid) in codebook.iter().enumerate() {
                 let next_residual = subtract(residual, centroid);
                 let error = squared_distance(&next_residual, &[0.0; GROUP_SIZE]);
                 let mut next_codes = *codes;
-                next_codes[stage] = code as u8;
+                next_codes[stage] = u8::try_from(code)
+                    .map_err(|_| VqError("VQ centroid index exceeds selector range"))?;
                 expanded.push((error, next_residual, next_codes));
             }
         }
@@ -1329,8 +1352,12 @@ fn beam_search_additive(
         expanded.truncate(beam_width);
         beam = expanded;
     }
-    let (_, residual, codes) = beam.into_iter().next().unwrap_or((0.0, *vector, [0; 4]));
-    (residual, codes)
+
+    let (_, residual, codes) = beam
+        .into_iter()
+        .next()
+        .ok_or(VqError("additive beam search produced no candidates"))?;
+    Ok((residual, codes))
 }
 
 fn fit_codebook(
