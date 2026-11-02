@@ -10,5 +10,7 @@
 - [x] T008 Add row-streamed execution over independently addressable HPSI blocks.
 - [x] T009 Evaluate residual/additive quantization against the single-codebook baseline.
 - [x] T010 Extend the CPU experiment to one through four additive residual codebooks and test monotonic weight-domain error.
-- [ ] T011 Record the four-rate benchmark on a pinned, documented CPU environment; compare the HPSI row-streamed path separately from in-memory VQ matvec.
-- [ ] T012 Add GPU kernel only after CPU correctness and profiling.
+- [x] T011 Record the four-rate CI benchmark and separate prepared-executor initialization from repeated HPSI row-window latency; pinned local CPU and file-backed storage measurements remain open.
+- [x] T012 Add a prepared HPSI VQ row executor that caches the shared codebook, validates a contiguous row-aligned block map once, and reads/computes only the requested row subranges on repeated calls.
+- [x] T013 Test partial row windows, repeated calls without codebook reload, and windows crossing index-block boundaries.
+- [ ] T014 Add a GPU kernel only after CPU correctness and profiling.
