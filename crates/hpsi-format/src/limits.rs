@@ -20,9 +20,9 @@ impl Default for ReaderLimits {
         Self {
             max_file_size: 1_u64 << 40,
             max_metadata_bytes: 16 * 1024 * 1024,
-            max_tensors: 1_000_000,
-            max_blocks: 16_000_000,
-            max_total_directory_bytes: 2 * 1024 * 1024 * 1024,
+            max_tensors: 250_000,
+            max_blocks: 1_000_000,
+            max_total_directory_bytes: 256 * 1024 * 1024,
             max_tensor_logical_bytes: 1_u64 << 40,
             max_payload_bytes_per_block: 64 * 1024 * 1024,
             max_rank: 8,
