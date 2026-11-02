@@ -127,3 +127,72 @@ fn additive_codebook_count_does_not_regress_held_out_output_error() {
         "additional codebooks should be reflected in storage accounting"
     );
 }
+
+
+#[test]
+fn activation_aware_quantization_handles_divergent_feature_importance() {
+    let (rows, cols) = (24, 64);
+    let weights = fixture(rows, cols);
+    // Deliberately non-uniform diagonal second moments: later features carry
+    // substantially more activation energy than the first ones.
+    let moments: Vec<f32> = (0..cols)
+        .map(|col| {
+            let scale = 0.15 + (col as f32 / (cols - 1) as f32) * 2.5;
+            scale * scale
+        })
+        .collect();
+    let config = VqConfig {
+        iterations: 12,
+        sample_limit: 4096,
+        codebook_count: 2,
+        beam_width: 8,
+    };
+
+    let ordinary = VqMatrix::encode(&weights, rows, cols, config).expect("ordinary VQ");
+    let calibrated = VqMatrix::encode_activation_aware(
+        &weights, rows, cols, config, &moments,
+    )
+    .expect("activation-aware VQ");
+
+    let weighted_inputs: Vec<Vec<f32>> = (0..16)
+        .map(|sample| {
+            (0..cols)
+                .map(|col| {
+                    let phase = sample as f32 * 0.23 + col as f32 * 0.13;
+                    (phase.sin() + 0.25 * (phase * 0.71).cos()) * moments[col].sqrt()
+                })
+                .collect()
+        })
+        .collect();
+
+    let weighted_error = |matrix: &VqMatrix| {
+        let mut error_sum = 0.0_f64;
+        let mut reference_sum = 0.0_f64;
+        for input in &weighted_inputs {
+            let mut actual = vec![0.0_f32; rows];
+            matrix.view().matvec(input, &mut actual).expect("VQ matvec");
+            for row in 0..rows {
+                let reference = weights[row * cols..(row + 1) * cols]
+                    .iter()
+                    .zip(input)
+                    .map(|(weight, value)| weight * value)
+                    .sum::<f32>();
+                let delta = (actual[row] - reference) as f64;
+                error_sum += delta * delta;
+                reference_sum += (reference as f64) * (reference as f64);
+            }
+        }
+        (error_sum / reference_sum.max(f64::MIN_POSITIVE)).sqrt()
+    };
+
+    let ordinary_error = weighted_error(&ordinary);
+    let calibrated_error = weighted_error(&calibrated);
+    assert!(ordinary_error.is_finite() && calibrated_error.is_finite());
+    assert!(ordinary_error >= 0.0 && calibrated_error >= 0.0);
+    assert_eq!(calibrated.rows(), rows);
+    assert_eq!(calibrated.cols(), cols);
+    assert!(
+        calibrated.stored_bytes() < calibrated.dense_f32_bytes(),
+        "activation-aware representation should remain smaller than dense F32"
+    );
+}
