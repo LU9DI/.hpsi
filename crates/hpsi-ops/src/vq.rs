@@ -499,14 +499,23 @@ impl VqMatrix {
         }
         let codebook_len = u64::try_from(codebook_bytes.len())
             .map_err(|_| VqError("VQ codebook byte length exceeds format limits"))?;
+        let block_count = (rows / block_rows)
+            .checked_add(usize::from(rows % block_rows != 0))
+            .ok_or(VqError("selector block count overflow"))?;
         let mut index_block_lengths = Vec::new();
+        index_block_lengths
+            .try_reserve_exact(block_count)
+            .map_err(|_| VqError("could not allocate selector block directory"))?;
         let mut first_row = 0usize;
         while first_row < rows {
             let count = block_rows.min(rows - first_row);
             let length = count
                 .checked_mul(bytes_per_row)
                 .ok_or(VqError("selector block length overflow"))?;
-            index_block_lengths.push(length as u64);
+            index_block_lengths.push(
+                u64::try_from(length)
+                    .map_err(|_| VqError("selector block length exceeds format limits"))?,
+            );
             first_row += count;
         }
         let index_bytes = rows
