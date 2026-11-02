@@ -51,7 +51,8 @@ impl RandomAccessSource for FileSource {
             let mut completed = 0;
             while completed < buffer.len() {
                 let position = offset + completed as u64;
-                let count = self.file
+                let count = self
+                    .file
                     .read_at(&mut buffer[completed..], position)
                     .map_err(|error| FormatError::Io(error.to_string()))?;
                 if count == 0 {
@@ -70,7 +71,8 @@ impl RandomAccessSource for FileSource {
             let mut completed = 0;
             while completed < buffer.len() {
                 let position = offset + completed as u64;
-                let count = self.file
+                let count = self
+                    .file
                     .seek_read(&mut buffer[completed..], position)
                     .map_err(|error| FormatError::Io(error.to_string()))?;
                 if count == 0 {
@@ -86,7 +88,9 @@ impl RandomAccessSource for FileSource {
         #[cfg(not(any(unix, windows)))]
         {
             let _ = (offset, buffer);
-            return Err(FormatError::Io("random-access file reads unsupported on this platform".into()));
+            return Err(FormatError::Io(
+                "random-access file reads unsupported on this platform".into(),
+            ));
         }
 
         Ok(())
@@ -100,7 +104,9 @@ pub struct MemorySource {
 
 impl MemorySource {
     pub fn new(bytes: impl Into<std::sync::Arc<[u8]>>) -> Self {
-        Self { bytes: bytes.into() }
+        Self {
+            bytes: bytes.into(),
+        }
     }
 }
 
@@ -112,10 +118,15 @@ impl RandomAccessSource for MemorySource {
     fn read_exact_at(&self, offset: u64, buffer: &mut [u8]) -> Result<()> {
         let start = usize::try_from(offset)
             .map_err(|_| FormatError::InvalidRegion("offset cannot fit address space"))?;
-        let end = start.checked_add(buffer.len())
+        let end = start
+            .checked_add(buffer.len())
             .ok_or(FormatError::ArithmeticOverflow("memory source read range"))?;
-        let source = self.bytes.get(start..end)
-            .ok_or(FormatError::InvalidRegion("read extends beyond memory source"))?;
+        let source = self
+            .bytes
+            .get(start..end)
+            .ok_or(FormatError::InvalidRegion(
+                "read extends beyond memory source",
+            ))?;
         buffer.copy_from_slice(source);
         Ok(())
     }
