@@ -228,6 +228,43 @@ fn view_rejects_mismatched_shapes_and_index_lengths() {
 }
 
 #[test]
+fn wider_additive_beam_does_not_worsen_weight_reconstruction() {
+    let rows = 64;
+    let cols = 128;
+    let weights = synthetic_weights(rows, cols);
+    for codebook_count in 2..=4 {
+        let greedy = VqMatrix::encode(
+            &weights,
+            rows,
+            cols,
+            VqConfig {
+                codebook_count,
+                beam_width: 1,
+                ..VqConfig::default()
+            },
+        )
+        .unwrap();
+        let searched = VqMatrix::encode(
+            &weights,
+            rows,
+            cols,
+            VqConfig {
+                codebook_count,
+                beam_width: 8,
+                ..VqConfig::default()
+            },
+        )
+        .unwrap();
+        let greedy_error = weight_relative_l2(&weights, &greedy);
+        let searched_error = weight_relative_l2(&weights, &searched);
+        assert!(
+            searched_error <= greedy_error + 1.0e-6,
+            "beam width 8 worsened {codebook_count}-stage error: {searched_error} > {greedy_error}"
+        );
+    }
+}
+
+#[test]
 fn residual_codebooks_handle_sparse_samples_deterministically() {
     // Fewer training vectors than available selector values is common for
     // small tensors and must not produce NaNs or unstable artifacts.
