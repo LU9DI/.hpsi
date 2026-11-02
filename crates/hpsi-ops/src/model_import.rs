@@ -278,11 +278,14 @@ mod tests {
         invalid.layer_name = "bias".into();
         invalid.features = 2;
         invalid.activation_second_moment = vec![1.0; 2];
-        assert!(ModelImportPlan::build(
-            &source(),
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source(),
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
     }
 
     #[test]
