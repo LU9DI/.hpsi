@@ -640,6 +640,12 @@ cargo run -p hpsi-cli -- calibrate activations.hpsi 42 > layer-0-calibration.jso
 
 This produces a versioned JSON calibration document for the activation-aware VQ API. It does not capture activations from a Transformer itself; the tensor must first be exported into HPSI. See [activation calibration documentation](docs/activation-calibration.md) for the accepted tensor layout, output schema, streaming guarantees, and limitations.
 
+
+
+## Importing real activation calibration
+
+The Rust `hpsi-ops` crate exposes `ActivationCalibration::from_json` to validate the versioned JSON artifacts emitted by the capture utility, including layer dimensions and dataset provenance. Its `activation_second_moment` vector can be passed to `VqMatrix::encode_activation_aware`; zero-valued moments from inactive features are supported with a numerical floor in the encoder. This connects calibration parsing to the quantizer API, but does not yet import source-model weight tensors or establish end-to-end model quality.
+
 ## Real Transformer activation capture
 
 A CPU-first capture utility is available for local Hugging Face causal language models:
