@@ -18,6 +18,10 @@ static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const COPY_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_IMPORT_TRAINING_SAMPLES: usize = 262_144;
 const MAX_IMPORT_VQ_ITERATIONS: usize = 256;
+const MAX_IMPORT_OUTPUT_TENSORS: usize = 250_000;
+const MAX_IMPORT_OUTPUT_BLOCKS: usize = 1_000_000;
+const MAX_IMPORT_BLOCK_BYTES: u64 = 64 * 1024 * 1024;
+
 
 struct ImportSpool {
     path: PathBuf,
@@ -297,6 +301,66 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         return Err(VqError(
             "import plan does not cover the complete source tensor set",
         ));
+    }
+
+    // Reject output layouts that cannot fit the HPSI writer limits before
+    // creating spools or training any VQ codebooks.
+    let mut output_tensor_count = 0usize;
+    let mut output_block_count = 0usize;
+    for planned in &plan.tensors {
+        let info_index = source_by_name
+            .binary_search_by(|item| item.name.as_str().cmp(planned.source_name.as_str()))
+            .map_err(|_| VqError("import plan references a missing source tensor"))?;
+        let info = source_by_name[info_index];
+        let (tensor_count, block_count) = match planned.disposition {
+            TensorDisposition::PreserveRaw => {
+                let length = info
+                    .data_end
+                    .checked_sub(info.data_start)
+                    .ok_or(VqError("invalid raw source payload range"))?;
+                if length == 0 {
+                    return Err(VqError("empty raw tensors cannot be emitted as HPSI blocks"));
+                }
+                let blocks = length
+                    .checked_add(COPY_CHUNK_BYTES as u64 - 1)
+                    .ok_or(VqError("raw block count overflow"))?
+                    / COPY_CHUNK_BYTES as u64;
+                (1usize, usize::try_from(blocks).map_err(|_| VqError("raw block count exceeds address space"))?)
+            }
+            TensorDisposition::QuantizeVq => {
+                let rows = usize::try_from(info.shape[0])
+                    .map_err(|_| VqError("row count exceeds address space"))?;
+                let cols = usize::try_from(info.shape[1])
+                    .map_err(|_| VqError("column count exceeds address space"))?;
+                let bytes_per_row = (cols / GROUP_SIZE)
+                    .checked_mul(config.codebook_count)
+                    .ok_or(VqError("selector count overflow"))?
+                    / 2;
+                let selector_block_bytes = (block_rows as u64)
+                    .checked_mul(bytes_per_row as u64)
+                    .ok_or(VqError("selector block size overflow"))?;
+                if selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
+                    return Err(VqError("selector block exceeds HPSI payload limit"));
+                }
+                let selector_blocks = rows
+                    .checked_add(block_rows - 1)
+                    .ok_or(VqError("selector block count overflow"))?
+                    / block_rows;
+                (2usize, selector_blocks.checked_add(1).ok_or(VqError("VQ block count overflow"))?)
+            }
+        };
+        output_tensor_count = output_tensor_count
+            .checked_add(tensor_count)
+            .ok_or(VqError("output tensor count overflow"))?;
+        output_block_count = output_block_count
+            .checked_add(block_count)
+            .ok_or(VqError("output block count overflow"))?;
+        if output_tensor_count > MAX_IMPORT_OUTPUT_TENSORS {
+            return Err(VqError("model import exceeds HPSI tensor count limit"));
+        }
+        if output_block_count > MAX_IMPORT_OUTPUT_BLOCKS {
+            return Err(VqError("model import exceeds HPSI block count limit"));
+        }
     }
 
     let mut spool = ImportSpool::create()?;
