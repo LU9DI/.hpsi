@@ -822,10 +822,7 @@ impl ModelWriter {
             let reader = ModelReader::open(source, &ReaderLimits::default())?;
             reader.verify_all()?;
             fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
-            #[cfg(unix)]
-            if let Ok(directory) = std::fs::File::open(parent) {
-                let _ = directory.sync_all();
-            }
+            sync_parent_directory(parent)?;
             Ok(stats)
         })();
         let _ = fs::remove_file(&temporary_path);
@@ -881,16 +878,23 @@ impl ModelWriter {
             reader.verify_all()?;
 
             fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
-            #[cfg(unix)]
-            if let Ok(directory) = std::fs::File::open(parent) {
-                let _ = directory.sync_all();
-            }
+            sync_parent_directory(parent)?;
             Ok(stats)
         })();
 
         let _ = fs::remove_file(&temporary_path);
         result
     }
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> Result<()> {
+    std::fs::File::open(parent).map_err(ioerr)?.sync_all().map_err(ioerr)
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]
