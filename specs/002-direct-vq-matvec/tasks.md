@@ -19,4 +19,5 @@
 - [ ] T017 Run pinned local CPU benchmarks on transformer-shaped matrices and cold/warm file-backed HPSI artifacts.
 - [ ] T018 Add a GPU kernel only after pinned CPU profiling and storage measurements.
 
-- [ ] T019 Evaluate beam-search additive assignment across widths 1, 2, 4, 8, and 16; choose a quality/encode-time tradeoff using held-out data.
+- [x] T019 Evaluate beam-search additive assignment across widths 1, 2, 4, 8, and 16; select default width 4 based on the best held-out error in the recorded sweep and encode-time tradeoff.
+- [ ] T020 Repeat beam-width sweeps across multiple seeds and real model weight tensors; evaluate activation-weighted layer output error and downstream model quality.
