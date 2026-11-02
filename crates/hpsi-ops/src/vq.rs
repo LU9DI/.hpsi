@@ -329,17 +329,29 @@ impl<'a> VqMatrixView<'a> {
 /// The codebook is loaded once. Only index blocks intersecting the requested
 /// rows are read; each block is evaluated independently without reconstructing
 /// a dense weight matrix or loading the complete selector tensor.
+#[derive(Debug, Clone, Copy)]
+pub struct HpsiVqLayout {
+    pub codebook_tensor_id: u32,
+    pub indices_tensor_id: u32,
+    pub rows: usize,
+    pub cols: usize,
+    pub codebook_count: usize,
+}
+
 pub fn matvec_hpsi_rows(
     reader: &ModelReader,
-    codebook_tensor_id: u32,
-    indices_tensor_id: u32,
-    rows: usize,
-    cols: usize,
-    codebook_count: usize,
+    layout: HpsiVqLayout,
     input: &[f32],
     first_row: usize,
     output: &mut [f32],
 ) -> Result<(), VqError> {
+    let HpsiVqLayout {
+        codebook_tensor_id,
+        indices_tensor_id,
+        rows,
+        cols,
+        codebook_count,
+    } = layout;
     if output.is_empty()
         || input.len() != cols
         || first_row

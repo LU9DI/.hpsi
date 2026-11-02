@@ -159,11 +159,13 @@ fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
     let mut selected = vec![0.0; 8];
     matvec_hpsi_rows(
         &reader,
-        20,
-        21,
-        rows,
-        cols,
-        2,
+        HpsiVqLayout {
+            codebook_tensor_id: 20,
+            indices_tensor_id: 21,
+            rows,
+            cols,
+            codebook_count: 2,
+        },
         &input,
         first_row,
         &mut selected,
