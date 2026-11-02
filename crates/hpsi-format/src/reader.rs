@@ -429,7 +429,9 @@ fn validate_integrity_coverage(
     let expected_count = blocks
         .len()
         .checked_add(1)
-        .ok_or(FormatError::ArithmeticOverflow("expected integrity record count"))?;
+        .ok_or(FormatError::ArithmeticOverflow(
+            "expected integrity record count",
+        ))?;
     if integrity.len() != expected_count {
         return Err(FormatError::InvalidDirectory(
             "integrity directory must cover metadata and every block",
@@ -455,11 +457,12 @@ fn validate_integrity_coverage(
                 "block checksum index is missing or inconsistent",
             ));
         }
-        let record = integrity
-            .get(expected_index as usize)
-            .ok_or(FormatError::InvalidReference(
-                "block checksum index is out of range",
-            ))?;
+        let record =
+            integrity
+                .get(expected_index as usize)
+                .ok_or(FormatError::InvalidReference(
+                    "block checksum index is out of range",
+                ))?;
         if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
             return Err(FormatError::InvalidReference(
                 "block checksum target mismatch",
@@ -630,14 +633,18 @@ mod tests {
             checksum_index: None,
         };
         let records = [
-            IntegrityRecord { target: IntegrityTarget::Metadata, crc32c: 0 },
-            IntegrityRecord { target: IntegrityTarget::BlockPayload(0), crc32c: 0 },
+            IntegrityRecord {
+                target: IntegrityTarget::Metadata,
+                crc32c: 0,
+            },
+            IntegrityRecord {
+                target: IntegrityTarget::BlockPayload(0),
+                crc32c: 0,
+            },
         ];
         assert!(matches!(
             super::validate_integrity_coverage(&[block], &records),
             Err(crate::FormatError::InvalidReference(_))
         ));
     }
-
-
 }
