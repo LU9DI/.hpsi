@@ -49,6 +49,16 @@ The output directory contains:
 
 The second-moment field is directly compatible with the vector expected by `VqMatrix::encode_activation_aware`. The exporter emits calibration data; it does not quantize weights or perform HPSI inference.
 
+## Import the checkpoint into HPSI
+
+After checking that the manifest's `source_tensor_name` values match the keys reported by `hpsi safetensors-inspect`, run:
+
+```bash
+cargo run -p hpsi-cli -- safetensors-import ./model.safetensors ./model.hpsi --calibration-dir ./artifacts/calibration
+```
+
+The importer reads each calibration JSON in the directory (excluding `manifest.json`), validates it, and matches it to the exact source tensor name. The filesystem writer reopens the output, verifies all integrity records, and publishes without overwriting an existing destination. By default, tensors not eligible for VQ are preserved byte-for-byte. Add `--reject-raw` to fail instead when any source tensor cannot be quantized. Without `--calibration-dir`, the same command imports without activation calibration.
+
 ## Reproducibility and limitations
 
 Record the exact local model snapshot, tokenizer files, Python/PyTorch/Transformers versions, dataset contents, and command-line limits alongside experimental results. Dataset SHA-256 identifies the exact JSONL bytes, but does not prove the dataset is representative.
