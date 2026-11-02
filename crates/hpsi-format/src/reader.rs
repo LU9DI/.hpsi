@@ -137,7 +137,9 @@ impl ModelReader {
             .metadata_bytes_read
             .store(metadata_bytes_read, Ordering::Relaxed);
         stats.directory_bytes_read.store(
-            tensor_directory_bytes_read + block_directory_bytes_read + integrity_directory_bytes_read,
+            tensor_directory_bytes_read
+                + block_directory_bytes_read
+                + integrity_directory_bytes_read,
             Ordering::Relaxed,
         );
 
