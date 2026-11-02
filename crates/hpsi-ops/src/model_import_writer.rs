@@ -448,8 +448,12 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     if directory_bytes > MAX_IMPORT_DIRECTORY_BYTES {
         return Err(VqError("model import exceeds HPSI directory byte limit"));
     }
-    if output_payload_bytes > MAX_IMPORT_FILE_BYTES.saturating_sub(128) {
-        return Err(VqError("model import payload exceeds HPSI file size limit"));
+    let minimum_file_bytes = 128u64
+        .checked_add(directory_bytes)
+        .and_then(|total| total.checked_add(output_payload_bytes))
+        .ok_or(VqError("minimum HPSI file size overflow"))?;
+    if minimum_file_bytes > MAX_IMPORT_FILE_BYTES {
+        return Err(VqError("model import exceeds HPSI file size limit"));
     }
 
     let mut tensors = Vec::<StreamingTensorInput>::new();
