@@ -993,6 +993,65 @@ mod streaming_writer_tests {
         std::fs::remove_dir(directory).unwrap();
     }
 
+    fn one_byte_buffered_tensor() -> Vec<TensorInput> {
+        vec![TensorInput {
+            tensor_id: 1,
+            name: "payload".into(),
+            dtype: DType::U8,
+            dimensions: vec![1],
+            blocks: vec![PayloadBlock { bytes: vec![42] }],
+        }]
+    }
+
+    #[test]
+    fn path_buffered_roundtrips_and_verifies_block_integrity() {
+        let (directory, destination) = test_output_path("buffered-roundtrip");
+        let stats = ModelWriter::write_path(&destination, &one_byte_buffered_tensor()).unwrap();
+        assert_eq!(stats.payload_bytes, 1);
+        assert_eq!(stats.tensor_count, 1);
+        assert_eq!(stats.block_count, 1);
+
+        let source = Arc::new(FileSource::open(&destination).unwrap());
+        let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
+        reader.verify_all().unwrap();
+        assert_eq!(reader.read_block(1, 0).unwrap().payload, [42]);
+
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn path_buffered_failure_does_not_publish_or_leave_temporary_file() {
+        let (directory, destination) = test_output_path("buffered-invalid-input");
+        let invalid = vec![TensorInput {
+            tensor_id: 1,
+            name: "payload".into(),
+            dtype: DType::U8,
+            dimensions: vec![1],
+            blocks: Vec::new(),
+        }];
+
+        let result = ModelWriter::write_path(&destination, &invalid);
+        assert!(result.is_err());
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn path_buffered_does_not_overwrite_existing_destination() {
+        let (directory, destination) = test_output_path("buffered-existing-destination");
+        std::fs::write(&destination, b"keep original").unwrap();
+
+        let result = ModelWriter::write_path(&destination, &one_byte_buffered_tensor());
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"keep original");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
     #[test]
     fn path_streaming_callback_failure_does_not_publish_or_leave_temporary_file() {
         let (directory, destination) = test_output_path("callback-failure");
