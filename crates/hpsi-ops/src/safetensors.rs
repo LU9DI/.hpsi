@@ -274,10 +274,7 @@ impl SafeTensorFile {
         values: &mut [f32],
     ) -> Result<(), SafeTensorError> {
         let element_count = values.len() as u64;
-        let tensor = self
-            .tensors
-            .iter()
-            .find(|tensor| tensor.name == name)
+        let tensor = self.tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         if !(1..=2).contains(&tensor.shape.len()) {
             return Err(SafeTensorError::UnsupportedDtype);
@@ -359,10 +356,7 @@ impl SafeTensorFile {
         first_row: u64,
         row_count: u64,
     ) -> Result<Vec<f32>, SafeTensorError> {
-        let tensor = self
-            .tensors
-            .iter()
-            .find(|tensor| tensor.name == name)
+        let tensor = self.tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         if tensor.shape.len() != 2 {
             return Err(SafeTensorError::UnsupportedDtype);
@@ -398,6 +392,24 @@ fn f16_to_f32(bits: u16) -> f32 {
 mod tests {
     use super::*;
     use hpsi_format::MemorySource;
+    #[test]
+    fn name_index_finds_tensors_without_changing_payload_order() {
+        let header = br#"{"z":{"dtype":"U8","shape":[1],"data_offsets":[1,2]},"a":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&[10, 20]);
+        let file =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
+
+        assert_eq!(file.tensor_by_name("a").unwrap().data_start, 0);
+        assert_eq!(file.tensor_by_name("z").unwrap().data_start, 1);
+        assert!(file.tensor_by_name("missing").is_none());
+        assert_eq!(file.tensors()[0].name, "a");
+        assert_eq!(file.tensors()[1].name, "z");
+    }
+
     #[test]
     fn copies_raw_payload_in_bounded_chunks_without_dtype_conversion() {
         let header = br#"{"raw":{"dtype":"I16","shape":[3],"data_offsets":[0,6]}}"#;
