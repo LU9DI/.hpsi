@@ -1022,7 +1022,10 @@ mod streaming_writer_tests {
         let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, _| {
             panic!("preflight must reject oversized payload")
         });
-        assert!(matches!(result, Err(FormatError::LimitExceeded("writer payload bytes per block"))));
+        assert!(matches!(
+            result,
+            Err(FormatError::LimitExceeded("writer payload bytes per block"))
+        ));
         assert!(output.get_ref().is_empty());
     }
 
