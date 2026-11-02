@@ -32,6 +32,10 @@ pub struct ModelWriter;
 
 impl ModelWriter {
     pub fn write<W: Write + Seek>(out: &mut W, tensors: &[TensorInput]) -> Result<WriterStats> {
+        let existing_len = out.seek(SeekFrom::End(0)).map_err(ioerr)?;
+        if existing_len != 0 {
+            return Err(FormatError::InvalidRegion("writer requires an empty output stream"));
+        }
         if tensors.is_empty() || tensors.len() > u32::MAX as usize {
             return Err(FormatError::InvalidTensor(
                 "writer requires a valid non-empty tensor set",
