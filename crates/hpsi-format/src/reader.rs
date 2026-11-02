@@ -806,7 +806,8 @@ impl Crc32c {
 #[cfg(test)]
 mod tests {
     use super::{
-        Crc32c, validate_acyclic_references, validate_payload_ranges, verify_padding_regions,
+        Crc32c, read_payload_into, validate_acyclic_references, validate_payload_ranges,
+        verify_padding_regions,
     };
     use crate::{
         BlockDescriptor, DType, FormatError, RandomAccessSource, Region, Result, TensorDescriptor,
@@ -1102,6 +1103,31 @@ mod tests {
                 "block payload ranges overlap"
             ))
         ));
+    }
+
+    #[test]
+    fn reusable_payload_read_fills_exact_caller_buffer() {
+        let mut source = tracking_source(300);
+        source.bytes[100..104].copy_from_slice(b"HPSI");
+        let descriptor = payload_block(100, 4);
+        let mut buffer = [0_u8; 4];
+        read_payload_into(&source, &descriptor, &mut buffer).unwrap();
+        assert_eq!(&buffer, b"HPSI");
+        assert_eq!(*source.reads.lock().unwrap(), vec![(100, 4)]);
+    }
+
+    #[test]
+    fn reusable_payload_read_rejects_wrong_buffer_size_before_io() {
+        let source = tracking_source(300);
+        let descriptor = payload_block(100, 4);
+        let mut buffer = [0_u8; 3];
+        assert!(matches!(
+            read_payload_into(&source, &descriptor, &mut buffer),
+            Err(FormatError::InvalidBlock(
+                "block payload buffer length does not match descriptor"
+            ))
+        ));
+        assert!(source.reads.lock().unwrap().is_empty());
     }
 
     #[test]
