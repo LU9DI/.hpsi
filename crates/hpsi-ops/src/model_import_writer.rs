@@ -316,9 +316,9 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                         || moment
                             .iter()
                             .any(|value| !value.is_finite() || *value < 0.0)
-                        || !planned
+                        || planned
                             .calibration_samples
-                            .is_some_and(|samples| samples > 0)
+                            .is_none_or(|samples| samples == 0)
                     {
                         return Err(VqError("VQ plan contains invalid activation calibration"));
                     }
