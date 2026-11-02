@@ -451,7 +451,7 @@ impl VqMatrix {
         config: VqConfig,
         block_rows: usize,
         tensor_names: VqTensorNames<'_>,
-        mut read_elements: F,
+        read_elements: F,
     ) -> Result<WriterStats, VqError>
     where
         W: Write + Seek,
@@ -1711,10 +1711,12 @@ mod hpsi_streaming_export_tests {
                 beam_width: 2,
             },
             1,
-            40,
-            "layer.weight.codebook",
-            41,
-            "layer.weight.indices",
+            VqTensorNames {
+                codebook_id: 40,
+                codebook_name: "layer.weight.codebook",
+                indices_id: 41,
+                indices_name: "layer.weight.indices",
+            },
             |offset, count| {
                 let start = offset as usize;
                 Ok(weights[start..start + count as usize].to_vec())
