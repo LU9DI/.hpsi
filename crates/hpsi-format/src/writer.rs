@@ -54,6 +54,22 @@ impl ModelWriter {
     pub fn write_streaming<W, F>(
         out: &mut W,
         tensors: &[StreamingTensorInput],
+        write_block: F,
+    ) -> Result<WriterStats>
+    where
+        W: Write + Seek,
+        F: FnMut(usize, usize, &mut dyn Write) -> Result<u64>,
+    {
+        Self::write_streaming_with_metadata(out, tensors, None, write_block)
+    }
+
+    /// Stream tensor payloads with optional validated model/producer/user
+    /// provenance. The tensor-name index is always derived from the actual
+    /// directory, preventing metadata from describing a different tensor set.
+    pub fn write_streaming_with_metadata<W, F>(
+        out: &mut W,
+        tensors: &[StreamingTensorInput],
+        extra_metadata: Option<serde_json::Value>,
         mut write_block: F,
     ) -> Result<WriterStats>
     where
@@ -118,10 +134,23 @@ impl ModelWriter {
             return Err(FormatError::LimitExceeded("writer block count"));
         }
 
-        let metadata = serde_json::to_vec(&json!({
-            "format":"hpsi", "metadata_version":1, "tensor_names":names
-        }))
-        .map_err(|error| FormatError::Io(error.to_string()))?;
+        let mut metadata_value = extra_metadata.unwrap_or_else(|| json!({}));
+        let metadata_object = metadata_value.as_object_mut().ok_or(
+            FormatError::InvalidMetadata("writer metadata must be a JSON object"),
+        )?;
+        for key in metadata_object.keys() {
+            if !matches!(key.as_str(), "model" | "producer" | "user") {
+                return Err(FormatError::InvalidMetadata(
+                    "custom writer metadata may contain only model, producer, and user",
+                ));
+            }
+        }
+        metadata_object.insert("format".into(), json!("hpsi"));
+        metadata_object.insert("metadata_version".into(), json!(1));
+        metadata_object.insert("tensor_names".into(), json!(names));
+        let metadata = serde_json::to_vec(&metadata_value)
+            .map_err(|error| FormatError::Io(error.to_string()))?;
+        crate::Metadata::parse(&metadata, &ReaderLimits::default())?;
         let metadata_off = 128_u64;
         let tensor_off = align8(
             metadata_off
