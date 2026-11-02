@@ -690,3 +690,11 @@ python tools/capture_transformer_activations.py --model ./models/local-causal-lm
 
 It hooks standard `torch.nn.Linear` inputs, accumulates diagonal second moments online, and emits one HPSI-compatible calibration JSON per layer plus a provenance manifest. The model/tokenizer must already be local; the tool uses `local_files_only` and does not download weights. See [Transformer activation capture](docs/transformer-activation-capture.md) for constraints and reproducibility details. This exporter has not yet been validated against a real model in this repository's CI; CI currently checks its Python syntax and dependency-free helper tests.
 
+After checking the emitted `source_tensor_name` values against `hpsi safetensors-inspect`, import the weights and calibration records together:
+
+```bash
+cargo run -p hpsi-cli -- safetensors-import ./models/model.safetensors ./artifacts/model.hpsi --calibration-dir ./artifacts/calibration
+```
+
+The command verifies the completed HPSI file before publishing it and never overwrites an existing destination. Raw preservation is the default for tensors outside VQ eligibility; pass `--reject-raw` to require every source tensor to be VQ-quantizable.
+
