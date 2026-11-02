@@ -355,20 +355,26 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     .map_err(|_| VqError("row count exceeds address space"))?;
                 let cols = usize::try_from(info.shape[1])
                     .map_err(|_| VqError("column count exceeds address space"))?;
-                let bytes_per_row = (cols / GROUP_SIZE)
+                if rows == 0 {
+                    return Err(VqError("VQ tensors must contain at least one row"));
+                }
+                let selectors_per_row = (cols / GROUP_SIZE)
                     .checked_mul(config.codebook_count)
-                    .ok_or(VqError("selector count overflow"))?
-                    / 2;
-                let selector_block_bytes = (block_rows as u64)
-                    .checked_mul(bytes_per_row as u64)
+                    .ok_or(VqError("selector count overflow"))?;
+                if selectors_per_row == 0 || selectors_per_row % 2 != 0 {
+                    return Err(VqError("VQ selector rows are not byte aligned"));
+                }
+                let bytes_per_row = selectors_per_row / 2;
+                let effective_block_rows = block_rows.min(rows);
+                let selector_block_bytes = u64::try_from(effective_block_rows)
+                    .ok()
+                    .and_then(|count| count.checked_mul(bytes_per_row as u64))
                     .ok_or(VqError("selector block size overflow"))?;
-                if selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
+                if selector_block_bytes == 0 || selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
                     return Err(VqError("selector block exceeds HPSI payload limit"));
                 }
-                let selector_blocks = rows
-                    .checked_add(block_rows - 1)
-                    .ok_or(VqError("selector block count overflow"))?
-                    / block_rows;
+                let selector_blocks = rows / block_rows
+                    + usize::from(rows % block_rows != 0);
                 (
                     2usize,
                     selector_blocks
