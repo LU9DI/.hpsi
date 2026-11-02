@@ -195,7 +195,7 @@ impl VqMatrix {
         rows: usize,
         cols: usize,
         config: VqConfig,
-        mut read_elements: F,
+        read_elements: F,
     ) -> Result<Self, VqError>
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
@@ -936,7 +936,7 @@ impl VqMatrix {
         }
         Ok(vec![
             TensorInput {
-                tensor_id: tensor_names.codebook_id,
+                tensor_id: codebook_tensor_id,
                 name: "hpsi.vq.codebook".into(),
                 dtype: DType::F32,
                 dimensions: vec![
@@ -947,7 +947,7 @@ impl VqMatrix {
                 blocks: payload_blocks(&codebook_bytes, 64 * 1024),
             },
             TensorInput {
-                tensor_id: tensor_names.indices_id,
+                tensor_id: indices_tensor_id,
                 name: "hpsi.vq.indices".into(),
                 dtype: DType::Opaque,
                 dimensions: vec![self.packed_indices.len() as u64],
