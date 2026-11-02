@@ -1161,13 +1161,43 @@ mod tests {
             UnsupportedTensorPolicy::AllowRawPreservation,
         )
         .unwrap();
-        calibrated.calibrations[0].dataset_sha256 = "z".repeat(64);
-        let mut output = Cursor::new(Vec::new());
-        assert!(
-            write_model_import_to_hpsi_calibrated(&source, &calibrated, &mut output, config(), 1,)
+        let mut invalid_plans = Vec::new();
+        let mut invalid_hash = calibrated.clone();
+        invalid_hash.calibrations[0].dataset_sha256 = "z".repeat(64);
+        invalid_plans.push(invalid_hash);
+        let mut zero_samples = calibrated.clone();
+        zero_samples.calibrations[0].sample_count = 0;
+        invalid_plans.push(zero_samples);
+        let mut zero_features = calibrated.clone();
+        zero_features.calibrations[0].features = 0;
+        invalid_plans.push(zero_features);
+        let mut mismatched_features = calibrated.clone();
+        mismatched_features.calibrations[0].features = 7;
+        invalid_plans.push(mismatched_features);
+        let mut unsupported_statistic = calibrated.clone();
+        unsupported_statistic.calibrations[0].statistic = "mean".into();
+        invalid_plans.push(unsupported_statistic);
+        let mut raw_tensor_association = calibrated.clone();
+        raw_tensor_association.calibrations[0].source_name = "bias".into();
+        invalid_plans.push(raw_tensor_association);
+        let mut unknown_tensor_association = calibrated;
+        unknown_tensor_association.calibrations[0].source_name = "missing".into();
+        invalid_plans.push(unknown_tensor_association);
+
+        for invalid_plan in invalid_plans {
+            let mut output = Cursor::new(Vec::new());
+            assert!(
+                write_model_import_to_hpsi_calibrated(
+                    &source,
+                    &invalid_plan,
+                    &mut output,
+                    config(),
+                    1,
+                )
                 .is_err()
-        );
-        assert!(output.get_ref().is_empty());
+            );
+            assert!(output.get_ref().is_empty());
+        }
     }
 
     #[test]
