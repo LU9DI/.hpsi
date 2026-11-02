@@ -1,0 +1,43 @@
+name: Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Fuzzing duration per target in seconds"
+        required: true
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_header, fuzz_model_reader]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run ${{ matrix.target }}
+        run: |
+          mkdir -p fuzz/artifacts/${{ matrix.target }}
+          cargo fuzz run ${{ matrix.target }} -- -max_total_time=${{ inputs.duration_seconds }} -print_final_stats=1 -artifact_prefix=fuzz/artifacts/${{ matrix.target }}/
+
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

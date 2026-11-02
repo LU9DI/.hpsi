@@ -67,3 +67,21 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --all-targets
+
+  fuzz-smoke:
+    name: Fuzz target build (nightly)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Check fuzz target formatting
+        run: cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
+
+      - name: Compile libFuzzer targets
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins
