@@ -243,11 +243,18 @@ The reader must support an injectable random-access source abstraction so tests 
 
 - Validate logical input and all references before writing.
 - Write canonical region order and zero-filled alignment padding.
-- Write to a temporary file in the destination directory.
+- Create a uniquely named temporary file in the destination directory using exclusive creation; never follow or overwrite an existing temporary path.
 - Flush buffered writes, synchronize file contents where supported, reopen with the reference reader, and verify the artifact.
-- Replace destination atomically where the platform supports it; document weaker guarantees otherwise.
-- On failure, preserve any pre-existing destination and clean up only the temporary file created by this operation.
+- Publish without replacing an existing destination. The current implementation uses a same-directory hard link, which provides atomic no-replace publication on filesystems that support hard links; unsupported filesystems return an I/O error.
+- Synchronize the parent directory where supported. If this fails after publication, report that the destination may already be visible while crash durability is uncertain.
+- On ordinary errors and panic unwinding, clean up only the temporary file created by this operation. Cleanup is best-effort.
 - Never delete or rewrite unrelated files.
+
+### 12.1 Abandoned temporary files
+
+Temporary files use the name pattern `.hpsi-<process-id>-<sequence>.tmp`. A process crash, forced termination, or power loss can prevent the in-process cleanup guard from running. The library deliberately does not remove old files automatically: age and process identifiers alone cannot prove that a file is orphaned, and an automatic sweep could delete a file belonging to an active writer or a process whose identifier was reused.
+
+Operational cleanup must therefore be performed only when no HPSI writer can be active in the target directory. Inspect each candidate and remove only files matching the exact HPSI temporary-file naming pattern; do not follow symbolic links or remove arbitrary neighboring files. Applications that cannot guarantee writer quiescence should leave such files untouched and surface them for operator review.
 
 ## 13. Conformance fixtures
 
