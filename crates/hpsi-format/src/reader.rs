@@ -179,7 +179,29 @@ impl ModelReader {
         ))
     }
 
+    /// Read exactly one block's stored payload into a caller-owned reusable buffer.
+    ///
+    /// The buffer length must exactly match the descriptor's payload length. This
+    /// lets sequential consumers reuse one allocation across blocks instead of
+    /// allocating a new Vec for every read.
+    pub fn read_block_into(
+        &self,
+        tensor_id: u32,
+        block_id: u32,
+        buffer: &mut [u8],
+    ) -> Result<&BlockDescriptor> {
+        let descriptor = self.block(tensor_id, block_id)?;
+        read_payload_into(&*self.source, descriptor, buffer)?;
+        self.stats
+            .payload_bytes_read
+            .fetch_add(buffer.len() as u64, Ordering::Relaxed);
+        self.stats.read_operations.fetch_add(1, Ordering::Relaxed);
+        Ok(descriptor)
+    }
+
     /// Read exactly one block's stored payload. No neighboring block is touched.
+    ///
+    /// Use read_block_into when the caller wants to reuse its own buffer.
     pub fn read_block(&self, tensor_id: u32, block_id: u32) -> Result<BlockData> {
         let descriptor = self.block(tensor_id, block_id)?.clone();
         let length = usize::try_from(descriptor.payload_length)
@@ -189,12 +211,7 @@ impl ModelReader {
             .try_reserve_exact(length)
             .map_err(|_| FormatError::LimitExceeded("block payload allocation failed"))?;
         payload.resize(length, 0);
-        self.source
-            .read_exact_at(descriptor.payload_offset, &mut payload)?;
-        self.stats
-            .payload_bytes_read
-            .fetch_add(length as u64, Ordering::Relaxed);
-        self.stats.read_operations.fetch_add(1, Ordering::Relaxed);
+        self.read_block_into(tensor_id, block_id, &mut payload)?;
         Ok(BlockData {
             descriptor,
             payload,
@@ -329,6 +346,21 @@ fn verify_padding_regions(
         }
     }
     Ok(total)
+}
+
+fn read_payload_into(
+    source: &dyn RandomAccessSource,
+    descriptor: &BlockDescriptor,
+    buffer: &mut [u8],
+) -> Result<()> {
+    let expected = usize::try_from(descriptor.payload_length)
+        .map_err(|_| FormatError::LimitExceeded("block payload cannot fit address space"))?;
+    if buffer.len() != expected {
+        return Err(FormatError::InvalidBlock(
+            "block payload buffer length does not match descriptor",
+        ));
+    }
+    source.read_exact_at(descriptor.payload_offset, buffer)
 }
 
 fn read_region(
