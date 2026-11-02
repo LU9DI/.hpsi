@@ -1135,6 +1135,66 @@ mod tests {
     }
 
     #[test]
+    fn integrity_coverage_rejects_duplicate_block_records_without_bitmap() {
+        use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
+        let block = BlockDescriptor {
+            tensor_id: 7,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 4,
+            payload_offset: 256,
+            payload_length: 4,
+            auxiliary_ref: None,
+            checksum_index: Some(0),
+        };
+        let records = [
+            IntegrityRecord {
+                target: IntegrityTarget::BlockPayload(0),
+                crc32c: 0,
+            },
+            IntegrityRecord {
+                target: IntegrityTarget::BlockPayload(0),
+                crc32c: 0,
+            },
+        ];
+        assert!(matches!(
+            super::validate_integrity_coverage(&[block], &records),
+            Err(crate::FormatError::InvalidReference(
+                "block checksum index is missing or inconsistent"
+            ))
+        ));
+    }
+
+    #[test]
+    fn integrity_coverage_rejects_block_checksum_pointing_to_wrong_record() {
+        use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
+        let block = BlockDescriptor {
+            tensor_id: 7,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 4,
+            payload_offset: 256,
+            payload_length: 4,
+            auxiliary_ref: None,
+            checksum_index: Some(0),
+        };
+        let records = [IntegrityRecord {
+            target: IntegrityTarget::Metadata,
+            crc32c: 0,
+        }];
+        assert!(matches!(
+            super::validate_integrity_coverage(&[block], &records),
+            Err(crate::FormatError::InvalidReference(
+                "block checksum target mismatch"
+            ))
+        ));
+    }
+
+    #[test]
     fn integrity_coverage_rejects_missing_block_checksum_index() {
         use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
         let block = BlockDescriptor {
