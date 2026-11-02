@@ -578,11 +578,11 @@ The Rust workspace on `feat/hpsi-core-container` now contains a first end-to-end
 - `hpsi inspect <file>` and `hpsi verify <file>` CLI commands.
 - GitHub Actions matrix configured for Windows, Ubuntu, and macOS.
 
-**Writer scope and limitations:** this is an initial low-level writer over an empty `Write + Seek` stream. It currently emits RAW blocks only; it is not yet an atomic path-based writer, does not preserve an existing destination on failure, and does not implement compressed codecs. The caller currently supplies block payload bytes in memory.
+**Writer scope and limitations:** the low-level writer accepts an empty `Write + Seek` stream and currently emits RAW blocks only. The path-based API creates a unique sibling temporary file with `create_new`, writes and syncs it, reopens it with the reference reader, verifies all CRC32C records, and publishes it using a same-directory hard link. It never overwrites an existing destination; hard-link support is required on the destination filesystem. Directory synchronization is best-effort on Unix. The caller currently supplies block payload bytes in memory, and compressed codecs are not implemented.
 
-**Validation status:** the earlier reader revision passed the Windows, macOS, and Ubuntu CI matrix. The writer and CLI changes are newer and must pass a fresh CI run before being considered validated.
+**Validation status:** the reader, RAW writer, verified path-publishing API, and CLI changes have passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy with warnings denied, and workspace tests.
 
-**Still outstanding:** atomic temporary-file output and durability guarantees, full CLI shape/codec/size reporting, source-level read-range instrumentation, broader malformed/truncated/corruption tests, fuzzing, and all compression/direct-compute kernels.
+**Still outstanding:** more adversarial malformed/truncated/overlap cases, fuzzing, CLI integration tests, and all compression/direct-compute kernels. The current writer is intentionally RAW-only and does not make a compression-ratio claim.
 
 
 ### Feature 001 — reader implementation update
