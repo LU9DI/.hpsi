@@ -80,8 +80,7 @@ pub fn try_discover_projection_candidates(
 /// Infallible convenience wrapper. Use the fallible API when processing
 /// untrusted or potentially large model headers.
 pub fn discover_projection_candidates(tensors: &[SafeTensorInfo]) -> Vec<ProjectionCandidate> {
-    try_discover_projection_candidates(tensors)
-        .expect("projection candidate allocation failed")
+    try_discover_projection_candidates(tensors).expect("projection candidate allocation failed")
 }
 
 fn has_projection_suffix(name: &str) -> bool {
@@ -93,8 +92,23 @@ fn has_projection_suffix(name: &str) -> bool {
         leaf
     };
     [
-        "q_proj", "k_proj", "v_proj", "o_proj", "out_proj", "query", "key", "value",
-        "dense", "fc1", "fc2", "up_proj", "down_proj", "gate_proj", "w1", "w2", "w3",
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "out_proj",
+        "query",
+        "key",
+        "value",
+        "dense",
+        "fc1",
+        "fc2",
+        "up_proj",
+        "down_proj",
+        "gate_proj",
+        "w1",
+        "w2",
+        "w3",
     ]
     .iter()
     .any(|suffix| projection.eq_ignore_ascii_case(suffix))
@@ -145,7 +159,10 @@ mod tests {
         ];
         let candidates = try_discover_projection_candidates(&tensors).unwrap();
         assert_eq!(
-            candidates.iter().map(|candidate| candidate.name.as_str()).collect::<Vec<_>>(),
+            candidates
+                .iter()
+                .map(|candidate| candidate.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["first.q_proj.weight", "second.K_PROJ.weight"]
         );
         assert!(candidates[0].conventional_projection_name);
