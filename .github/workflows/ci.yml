@@ -10,6 +10,19 @@ permissions:
   contents: write
 
 jobs:
+  python-capture-tools:
+    name: Python capture utility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile capture utility
+        run: python -m py_compile tools/capture_transformer_activations.py
+      - name: Test capture utility helpers
+        run: python -m unittest discover -s tests -p "test_*.py"
   format:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat/')
     runs-on: ubuntu-latest
