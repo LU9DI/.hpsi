@@ -197,10 +197,40 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         mut read_elements: F,
-        mut emit_row: E,
+        emit_row: E,
     ) -> Result<Vec<f32>, VqError>
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+        E: FnMut(u64, &[u8]) -> Result<(), VqError>,
+    {
+        Self::encode_from_reader_into(
+            rows,
+            cols,
+            config,
+            |offset, target| {
+                let values = read_elements(offset, target.len() as u64)?;
+                if values.len() != target.len() {
+                    return Err(VqError("reader returned an invalid window length"));
+                }
+                target.copy_from_slice(&values);
+                Ok(())
+            },
+            emit_row,
+        )
+    }
+
+    /// Buffer-reusing variant of the streaming VQ encoder. The callback fills
+    /// caller-provided storage, allowing Safetensors decoding and VQ row
+    /// processing to reuse one allocation across all rows.
+    pub fn encode_from_reader_into<F, E>(
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        mut read_elements: F,
+        mut emit_row: E,
+    ) -> Result<Vec<f32>, VqError>
+    where
+        F: FnMut(u64, &mut [f32]) -> Result<(), VqError>,
         E: FnMut(u64, &[u8]) -> Result<(), VqError>,
     {
         let expected = rows
@@ -230,21 +260,20 @@ impl VqMatrix {
         samples
             .try_reserve_exact(sample_count)
             .map_err(|_| VqError("could not allocate VQ training samples"))?;
+        let mut sample_buffer = [0.0_f32; GROUP_SIZE];
         for sample_index in 0..sample_count {
             let group_index =
                 ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
             let offset = group_index
                 .checked_mul(GROUP_SIZE)
                 .ok_or(VqError("sample element offset overflow"))?;
-            let values = read_elements(offset as u64, GROUP_SIZE as u64)?;
-            if values.len() != GROUP_SIZE || values.iter().any(|value| !value.is_finite()) {
+            read_elements(offset as u64, &mut sample_buffer)?;
+            if sample_buffer.iter().any(|value| !value.is_finite()) {
                 return Err(VqError(
                     "reader returned an invalid or non-finite sample window",
                 ));
             }
-            let mut vector = [0.0_f32; GROUP_SIZE];
-            vector.copy_from_slice(&values);
-            samples.push(vector);
+            samples.push(sample_buffer);
         }
 
         let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
@@ -266,19 +295,24 @@ impl VqMatrix {
         packed_row
             .try_reserve_exact(bytes_per_row)
             .map_err(|_| VqError("could not allocate packed selector row"))?;
+        let mut row_buffer = Vec::new();
+        row_buffer
+            .try_reserve_exact(cols)
+            .map_err(|_| VqError("could not allocate VQ row buffer"))?;
+        row_buffer.resize(cols, 0.0_f32);
         for row in 0..rows {
             let first_element = row
                 .checked_mul(cols)
                 .ok_or(VqError("row element offset overflow"))?;
-            let values = read_elements(first_element as u64, cols as u64)?;
-            if values.len() != cols || values.iter().any(|value| !value.is_finite()) {
+            read_elements(first_element as u64, &mut row_buffer)?;
+            if row_buffer.iter().any(|value| !value.is_finite()) {
                 return Err(VqError(
                     "reader returned an invalid or non-finite row window",
                 ));
             }
             packed_row.clear();
             packed_row.resize(bytes_per_row, 0);
-            for (group_in_row, chunk) in values.chunks_exact(GROUP_SIZE).enumerate() {
+            for (group_in_row, chunk) in row_buffer.chunks_exact(GROUP_SIZE).enumerate() {
                 let mut residual = [0.0_f32; GROUP_SIZE];
                 residual.copy_from_slice(chunk);
                 let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
