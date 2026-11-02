@@ -522,6 +522,29 @@ impl VqMatrix {
         let index_bytes = rows
             .checked_mul(bytes_per_row)
             .ok_or(VqError("selector stream size overflow"))?;
+        let expected_index_bytes = u64::try_from(index_bytes)
+            .map_err(|_| VqError("selector stream exceeds format limits"))?;
+        let declared_index_bytes = index_block_lengths.iter().try_fold(0u64, |total, length| {
+            total
+                .checked_add(*length)
+                .ok_or(VqError("selector block directory size overflow"))
+        })?;
+        if declared_index_bytes != expected_index_bytes {
+            return Err(VqError(
+                "selector block directory does not match the selector stream size",
+            ));
+        }
+        let spool_len = spool
+            .seek(SeekFrom::End(0))
+            .map_err(|_| VqError("could not inspect selector spool length"))?;
+        if spool_len != expected_index_bytes {
+            return Err(VqError(
+                "selector spool length does not match the selector stream size",
+            ));
+        }
+        spool
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| VqError("could not rewind selector spool"))?;
         let tensors = vec![
             StreamingTensorInput {
                 tensor_id: codebook_tensor_id,
@@ -538,7 +561,7 @@ impl VqMatrix {
                 tensor_id: indices_tensor_id,
                 name: indices_tensor_name.into(),
                 dtype: DType::Opaque,
-                dimensions: vec![index_bytes as u64],
+                dimensions: vec![expected_index_bytes],
                 block_lengths: index_block_lengths,
             },
         ];
