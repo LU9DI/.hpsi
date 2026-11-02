@@ -193,6 +193,9 @@ impl SafeTensorFile {
         if chunk_bytes == 0 {
             return Err(SafeTensorError::InvalidTensor);
         }
+        // Keep memory use bounded even when a caller accidentally requests a
+        // very large chunk. Smaller caller-selected chunks remain respected.
+        let chunk_bytes = chunk_bytes.min(64 * 1024);
         let tensor = self
             .tensors
             .iter()
