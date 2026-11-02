@@ -181,6 +181,39 @@ impl SafeTensorFile {
         )
     }
 
+    /// Copy an original tensor payload to a writer without decoding or changing
+    /// its dtype. Reads are bounded by `chunk_bytes`, so large raw tensors do
+    /// not need to be materialized in memory during model import.
+    pub fn copy_raw_payload<W: Write>(
+        &self,
+        name: &str,
+        output: &mut W,
+        chunk_bytes: usize,
+    ) -> Result<u64, SafeTensorError> {
+        if chunk_bytes == 0 {
+            return Err(SafeTensorError::InvalidTensor);
+        }
+        let tensor = self.tensors.iter().find(|tensor| tensor.name == name)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let length = tensor.data_end.checked_sub(tensor.data_start)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let absolute_start = self.data_start.checked_add(tensor.data_start)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        let mut buffer = Vec::new();
+        buffer.try_reserve_exact(chunk_bytes).map_err(|_| SafeTensorError::Allocation)?;
+        buffer.resize(chunk_bytes, 0);
+        let mut copied = 0_u64;
+        while copied < length {
+            let count = (length - copied).min(chunk_bytes as u64) as usize;
+            let offset = absolute_start.checked_add(copied).ok_or(SafeTensorError::OutOfBounds)?;
+            self.source.read_exact_at(offset, &mut buffer[..count])
+                .map_err(|_| SafeTensorError::Io)?;
+            output.write_all(&buffer[..count]).map_err(|_| SafeTensorError::Io)?;
+            copied = copied.checked_add(count as u64).ok_or(SafeTensorError::OutOfBounds)?;
+        }
+        Ok(copied)
+    }
+
     pub fn tensors(&self) -> &[SafeTensorInfo] {
         &self.tensors
     }
@@ -308,6 +341,26 @@ mod tests {
     use super::*;
     use hpsi_format::MemorySource;
     #[test]
+    #[test]
+    fn copies_raw_payload_in_bounded_chunks_without_dtype_conversion() {
+        let header = br#"{"raw":{"dtype":"I16","shape":[3],"data_offsets":[0,6]}}"#;
+        let payload = [0x34_u8, 0x12, 0xcd, 0xab, 0x01, 0x02];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&payload);
+        let file = SafeTensorFile::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096
+        ).unwrap();
+        let mut copied = Vec::new();
+        assert_eq!(file.copy_raw_payload("raw", &mut copied, 2).unwrap(), 6);
+        assert_eq!(copied, payload);
+        assert!(matches!(
+            file.copy_raw_payload("raw", &mut Vec::new(), 0),
+            Err(SafeTensorError::InvalidTensor)
+        ));
+    }
+
     fn converts_f16_and_bf16_row_windows_to_f32() {
         for (dtype, one, minus_two) in [
             ("F16", 0x3c00_u16, 0xc000_u16),
