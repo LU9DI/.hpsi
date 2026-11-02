@@ -373,10 +373,19 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         }
     }
 
-    let mut spool = ImportSpool::create()?;
     let mut tensors = Vec::<StreamingTensorInput>::new();
+    tensors
+        .try_reserve_exact(output_tensor_count)
+        .map_err(|_| VqError("could not reserve HPSI tensor descriptors"))?;
     let mut block_offsets = Vec::<Vec<u64>>::new();
-    let mut provenance = Vec::with_capacity(plan.tensors.len());
+    block_offsets
+        .try_reserve_exact(output_tensor_count)
+        .map_err(|_| VqError("could not reserve HPSI block offset tables"))?;
+    let mut provenance = Vec::new();
+    provenance
+        .try_reserve_exact(plan.tensors.len())
+        .map_err(|_| VqError("could not reserve import provenance"))?;
+    let mut spool = ImportSpool::create()?;
     let mut next_id = 0_u32;
 
     for planned in &plan.tensors {
@@ -414,8 +423,19 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 if copied != length {
                     return Err(VqError("raw source tensor copy length mismatch"));
                 }
+                let block_count = usize::try_from(
+                    length / COPY_CHUNK_BYTES as u64
+                        + u64::from(length % COPY_CHUNK_BYTES as u64 != 0),
+                )
+                .map_err(|_| VqError("raw block count exceeds address space"))?;
                 let mut lengths = Vec::new();
+                lengths
+                    .try_reserve_exact(block_count)
+                    .map_err(|_| VqError("could not reserve raw block lengths"))?;
                 let mut offsets = Vec::new();
+                offsets
+                    .try_reserve_exact(block_count)
+                    .map_err(|_| VqError("could not reserve raw block offsets"))?;
                 let mut remaining = length;
                 let mut offset = start;
                 while remaining > 0 {
@@ -551,8 +571,16 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 let total_indices = (rows as u64)
                     .checked_mul(bytes_per_row as u64)
                     .ok_or(VqError("selector payload size overflow"))?;
+                let selector_block_count = rows / block_rows
+                    + usize::from(rows % block_rows != 0);
                 let mut lengths = Vec::new();
+                lengths
+                    .try_reserve_exact(selector_block_count)
+                    .map_err(|_| VqError("could not reserve selector block lengths"))?;
                 let mut offsets = Vec::new();
+                offsets
+                    .try_reserve_exact(selector_block_count)
+                    .map_err(|_| VqError("could not reserve selector block offsets"))?;
                 let mut first_row = 0usize;
                 let mut byte_offset = indices_start;
                 while first_row < rows {
