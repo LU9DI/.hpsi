@@ -63,10 +63,16 @@ struct LimitedMetadataBuffer {
 
 impl Write for LimitedMetadataBuffer {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        let new_len = self.bytes.len().checked_add(buffer.len()).ok_or_else(|| {
-            self.limit_exceeded = true;
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "metadata size overflow")
-        })?;
+        let new_len = match self.bytes.len().checked_add(buffer.len()) {
+            Some(length) => length,
+            None => {
+                self.limit_exceeded = true;
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "metadata size overflow",
+                ));
+            }
+        };
         if new_len > self.max_bytes {
             self.limit_exceeded = true;
             return Err(std::io::Error::new(
