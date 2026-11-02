@@ -274,12 +274,15 @@ impl VqMatrix {
         if rows == 0 || cols == 0 || block_rows == 0 {
             return Err(VqError("matrix dimensions and block rows must be non-zero"));
         }
-        if spool.seek(SeekFrom::End(0))
-            .map_err(|_| VqError("could not inspect selector spool"))? != 0
+        if spool
+            .seek(SeekFrom::End(0))
+            .map_err(|_| VqError("could not inspect selector spool"))?
+            != 0
         {
             return Err(VqError("selector spool must be empty"));
         }
-        spool.seek(SeekFrom::Start(0))
+        spool
+            .seek(SeekFrom::Start(0))
             .map_err(|_| VqError("could not rewind selector spool"))?;
         let selectors = selectors_per_row(cols, config.codebook_count)?;
         let bytes_per_row = selectors / 2;
@@ -369,8 +372,9 @@ impl VqMatrix {
                         .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
                     remaining -= count as u64;
                 }
-                spool_offset = spool_offset.checked_add(length)
-                    .ok_or(hpsi_format::FormatError::ArithmeticOverflow("selector spool offset"))?;
+                spool_offset = spool_offset.checked_add(length).ok_or(
+                    hpsi_format::FormatError::ArithmeticOverflow("selector spool offset"),
+                )?;
                 current_block += 1;
                 Ok(length)
             })
