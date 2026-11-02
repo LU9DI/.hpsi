@@ -251,5 +251,16 @@ fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
             one_index_block_bytes as u64,
             "repeated windows must not reload the codebook"
         );
+
+        // A request crossing the boundary between two payload blocks reads
+        // both blocks but computes/copies only the four requested rows.
+        let bytes_before_crossing = prepared_reader.stats().payload_bytes_read;
+        let mut crossing = vec![0.0; 4];
+        executor.matvec_rows(&input, 7, &mut crossing).unwrap();
+        assert_eq!(crossing, expected[7..11]);
+        assert_eq!(
+            prepared_reader.stats().payload_bytes_read - bytes_before_crossing,
+            (2 * one_index_block_bytes) as u64
+        );
     }
 }
