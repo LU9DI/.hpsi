@@ -20,9 +20,9 @@ impl Default for ReaderLimits {
         Self {
             max_file_size: 1_u64 << 40,
             max_metadata_bytes: 16 * 1024 * 1024,
-            max_tensors: 250_000,
-            max_blocks: 1_000_000,
-            max_total_directory_bytes: 256 * 1024 * 1024,
+            max_tensors: 1_000_000,
+            max_blocks: 16_000_000,
+            max_total_directory_bytes: 2 * 1024 * 1024 * 1024,
             max_tensor_logical_bytes: 1_u64 << 40,
             max_payload_bytes_per_block: 64 * 1024 * 1024,
             max_rank: 8,
@@ -31,5 +31,27 @@ impl Default for ReaderLimits {
             max_json_container_items: 1_000_000,
             max_tensor_name_bytes: 1024,
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::ReaderLimits;
+
+    #[test]
+    fn defaults_match_v01_reader_resource_limits() {
+        let limits = ReaderLimits::default();
+        assert_eq!(limits.max_file_size, 1_u64 << 40);
+        assert_eq!(limits.max_metadata_bytes, 16 * 1024 * 1024);
+        assert_eq!(limits.max_tensors, 1_000_000);
+        assert_eq!(limits.max_blocks, 16_000_000);
+        assert_eq!(limits.max_total_directory_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(limits.max_tensor_logical_bytes, 1_u64 << 40);
+        assert_eq!(limits.max_payload_bytes_per_block, 64 * 1024 * 1024);
+        assert_eq!(limits.max_rank, 8);
+        assert_eq!(limits.max_json_depth, 32);
+        assert_eq!(limits.max_json_string_bytes, 1024 * 1024);
+        assert_eq!(limits.max_tensor_name_bytes, 1024);
     }
 }
