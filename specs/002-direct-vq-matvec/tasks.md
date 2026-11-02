@@ -9,4 +9,6 @@
 - [x] T007 Add reproducible CPU benchmark for encode and matvec.
 - [x] T008 Add row-streamed execution over independently addressable HPSI blocks.
 - [x] T009 Evaluate residual/additive quantization against the single-codebook baseline.
-- [ ] T010 Add GPU kernel only after CPU correctness and profiling.
+- [x] T010 Extend the CPU experiment to one through four additive residual codebooks and test monotonic weight-domain error.
+- [ ] T011 Record the four-rate benchmark on a pinned, documented CPU environment; compare the HPSI row-streamed path separately from in-memory VQ matvec.
+- [ ] T012 Add GPU kernel only after CPU correctness and profiling.
