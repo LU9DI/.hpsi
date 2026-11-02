@@ -1,0 +1,8 @@
+[package]
+name = "hpsi-ops"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+hpsi-format = { path = "../hpsi-format" }
