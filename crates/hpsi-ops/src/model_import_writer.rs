@@ -147,8 +147,12 @@ fn source_dtype(dtype: &str) -> Result<DType, VqError> {
         "I16" => Ok(DType::I16),
         "I8" => Ok(DType::I8),
         "U8" => Ok(DType::U8),
-        // HPSI has no BOOL scalar dtype; preserve its exact bytes as opaque.
-        "BOOL" => Ok(DType::Opaque),
+        // Safetensors has additional unsigned, sub-byte, FP8 and complex
+        // types without a lossless HPSI scalar dtype. Preserve those payloads
+        // as opaque bytes rather than rejecting an otherwise valid import.
+        "BOOL" | "F4" | "F6_E2M3" | "F6_E3M2" | "U16" | "U32" | "U64"
+        | "F8_E5M2" | "F8_E4M3" | "F8_E8M0" | "F8_E4M3FNUZ" | "F8_E5M2FNUZ"
+        | "C64" => Ok(DType::Opaque),
         _ => Err(VqError("source tensor dtype cannot be represented in HPSI")),
     }
 }
@@ -645,7 +649,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                         .ok_or(VqError("raw spool offset overflow"))?;
                     remaining -= count;
                 }
-                let opaque = planned.source_dtype == "BOOL";
+                let opaque = source_dtype(&planned.source_dtype)? == DType::Opaque;
                 let dimensions = if opaque {
                     vec![length]
                 } else {
@@ -924,6 +928,96 @@ mod tests {
             reader.metadata.value["user"]["source_tensors"][0]["source_dtype"],
             "F32"
         );
+    }
+
+    #[test]
+    fn imports_all_safetensors_dtypes_to_hpsi_without_payload_loss() {
+        let dtypes = [
+            ("BOOL", 8_u64, DType::Opaque),
+            ("F4", 4, DType::Opaque),
+            ("F6_E2M3", 6, DType::Opaque),
+            ("F6_E3M2", 6, DType::Opaque),
+            ("U8", 8, DType::U8),
+            ("I8", 8, DType::I8),
+            ("F8_E5M2", 8, DType::Opaque),
+            ("F8_E4M3", 8, DType::Opaque),
+            ("F8_E8M0", 8, DType::Opaque),
+            ("F8_E4M3FNUZ", 8, DType::Opaque),
+            ("F8_E5M2FNUZ", 8, DType::Opaque),
+            ("I16", 16, DType::I16),
+            ("U16", 16, DType::Opaque),
+            ("F16", 16, DType::F16),
+            ("BF16", 16, DType::Bf16),
+            ("I32", 32, DType::I32),
+            ("U32", 32, DType::Opaque),
+            ("F32", 32, DType::F32),
+            ("C64", 64, DType::Opaque),
+            ("F64", 64, DType::F64),
+            ("I64", 64, DType::I64),
+            ("U64", 64, DType::Opaque),
+        ];
+
+        for (dtype, bits_per_element, expected_hpsi_dtype) in dtypes {
+            let payload_len = usize::try_from(bits_per_element).unwrap();
+            let header = format!(
+                r#"{{"tensor":{{"dtype":"{dtype}","shape":[8],"data_offsets":[0,{payload_len}]}}}}"#
+            );
+            let payload: Vec<u8> = (0..payload_len)
+                .map(|index| (index as u8).wrapping_mul(17).wrapping_add(3))
+                .collect();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            bytes.extend_from_slice(&payload);
+
+            let source = SafeTensorFile::open(
+                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+                4096,
+            )
+            .unwrap();
+            let plan = ModelImportPlan::build(
+                &source,
+                &[],
+                UnsupportedTensorPolicy::AllowRawPreservation,
+            )
+            .unwrap();
+            let mut output = Cursor::new(Vec::new());
+            let stats =
+                write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
+            assert_eq!(stats.tensor_count, 1, "tensor count for {dtype}");
+
+            let reader = ModelReader::open(
+                Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+                &ReaderLimits::default(),
+            )
+            .unwrap();
+            reader.verify_all().unwrap();
+            let descriptor = reader.tensor(0).unwrap();
+            assert_eq!(descriptor.dtype, expected_hpsi_dtype, "HPSI dtype for {dtype}");
+            let expected_dimensions = if expected_hpsi_dtype == DType::Opaque {
+                vec![payload_len as u64]
+            } else {
+                vec![8]
+            };
+            assert_eq!(
+                descriptor.dimensions[..usize::from(descriptor.rank)],
+                expected_dimensions,
+                "HPSI dimensions for {dtype}"
+            );
+            assert_eq!(
+                reader.read_block(0, 0).unwrap().payload,
+                payload,
+                "payload changed for Safetensors dtype {dtype}"
+            );
+            assert_eq!(
+                reader.metadata.value["user"]["source_tensors"][0]["source_dtype"],
+                dtype
+            );
+            assert_eq!(
+                reader.metadata.value["user"]["source_tensors"][0]["source_shape"],
+                serde_json::json!([8])
+            );
+        }
     }
 
     #[test]
