@@ -120,3 +120,19 @@ callbacks that attempt to write beyond a block's declared length.
 The direct import currently handles rank-2 floating tensors. It does not yet
 perform a whole-model conversion across every tensor or persist calibration
 metadata; those are separate pipeline steps.
+
+## Lossless raw payload preservation
+
+`SafeTensorFile::copy_raw_payload(name, output, chunk_bytes)` copies a
+validated tensor's original byte range to any `Write` sink without decoding,
+casting, or changing its source dtype. Reads are performed in chunks no larger
+than `chunk_bytes`; the method returns the exact number of bytes copied and
+rejects a zero chunk size. This is the low-level path required for tensors that
+the VQ importer does not quantize (for example, biases, normalization
+parameters, integer tensors, and embeddings).
+
+The API deliberately copies payload bytes only. A whole-model importer must
+still map source dtype and shape into HPSI tensor descriptors, preserve the
+original Safetensors dtype in its import manifest when HPSI uses an opaque
+representation, and stage all output blocks before invoking the multi-tensor
+streaming writer once. That end-to-end orchestration is not yet implemented.
