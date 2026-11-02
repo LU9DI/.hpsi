@@ -47,6 +47,17 @@ impl ModelImportPlan {
     ) -> Result<Self, VqError> {
         let mut calibration_by_name = BTreeMap::new();
         for calibration in calibrations {
+            if calibration.layer_name.trim().is_empty()
+                || calibration.sample_count == 0
+                || calibration.features == 0
+                || calibration.activation_second_moment.len() != calibration.features
+                || calibration
+                    .activation_second_moment
+                    .iter()
+                    .any(|value| !value.is_finite() || *value < 0.0)
+            {
+                return Err(VqError("activation calibration contains invalid dimensions or moments"));
+            }
             if calibration_by_name
                 .insert(calibration.layer_name.as_str(), calibration)
                 .is_some()
@@ -65,6 +76,9 @@ impl ModelImportPlan {
         let mut tensors = Vec::with_capacity(names.len());
 
         for tensor in names {
+            if tensor.shape.is_empty() || tensor.shape.len() > 8 || tensor.shape.contains(&0) {
+                return Err(VqError("source tensor rank or dimensions are incompatible with HPSI"));
+            }
             let quantizable = tensor.shape.len() == 2
                 && tensor.shape.iter().all(|dimension| *dimension > 0)
                 && tensor.shape[1] % crate::vq::GROUP_SIZE as u64 == 0
