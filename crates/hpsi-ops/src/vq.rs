@@ -1514,6 +1514,39 @@ mod hpsi_streaming_export_tests {
     use std::sync::Arc;
 
     #[test]
+    fn reader_encoder_accepts_caller_assigned_tensor_ids_and_names() {
+        let rows = 2;
+        let cols = 8;
+        let weights = vec![0.25_f32; rows * cols];
+        let mut output = Cursor::new(Vec::new());
+        let mut spool = Cursor::new(Vec::new());
+        let stats = VqMatrix::encode_from_reader_to_hpsi_named(
+            &mut output,
+            &mut spool,
+            rows,
+            cols,
+            VqConfig { iterations: 2, sample_limit: 8, codebook_count: 1, beam_width: 2 },
+            1,
+            40,
+            "layer.weight.codebook",
+            41,
+            "layer.weight.indices",
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+        ).unwrap();
+        assert_eq!(stats.tensor_count, 2);
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        ).unwrap();
+        reader.verify_all().unwrap();
+        assert!(!reader.read_block(40, 0).unwrap().payload.is_empty());
+        assert!(!reader.read_block(41, 0).unwrap().payload.is_empty());
+    }
+
+    #[test]
     fn reader_encoder_streams_vq_tensors_into_hpsi_writer() {
         let rows = 8;
         let cols = 16;
