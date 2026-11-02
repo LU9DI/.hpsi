@@ -92,10 +92,7 @@ impl Write for LimitedMetadataBuffer {
 
 /// Serialize metadata without allowing the output buffer to grow beyond its
 /// configured limit. Allocation failures are returned as format limit errors.
-pub fn serialize_metadata_limited(
-    value: &serde_json::Value,
-    max_bytes: usize,
-) -> Result<Vec<u8>> {
+pub fn serialize_metadata_limited(value: &serde_json::Value, max_bytes: usize) -> Result<Vec<u8>> {
     let mut output = LimitedMetadataBuffer {
         bytes: Vec::new(),
         max_bytes,
@@ -109,7 +106,9 @@ pub fn serialize_metadata_limited(
         if output.allocation_failed {
             return Err(FormatError::LimitExceeded("writer metadata allocation"));
         }
-        return Err(FormatError::Io("could not serialize writer metadata".into()));
+        return Err(FormatError::Io(
+            "could not serialize writer metadata".into(),
+        ));
     }
     Ok(output.bytes)
 }
