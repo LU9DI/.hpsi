@@ -104,11 +104,18 @@ impl VqMatrix {
         let mut dimension_scale = [1.0_f32; GROUP_SIZE];
         if let Some(importance) = activation_second_moment {
             if importance.len() != cols || importance.iter().any(|v| !v.is_finite() || *v <= 0.0) {
-                return Err(VqError("activation importance must contain one finite positive value per column"));
+                return Err(VqError(
+                    "activation importance must contain one finite positive value per column",
+                ));
             }
             for dimension in 0..GROUP_SIZE {
-                let mean = importance.iter().skip(dimension).step_by(GROUP_SIZE)
-                    .map(|v| f64::from(*v)).sum::<f64>() / (cols / GROUP_SIZE) as f64;
+                let mean = importance
+                    .iter()
+                    .skip(dimension)
+                    .step_by(GROUP_SIZE)
+                    .map(|v| f64::from(*v))
+                    .sum::<f64>()
+                    / (cols / GROUP_SIZE) as f64;
                 dimension_scale[dimension] = mean.sqrt() as f32;
                 if !dimension_scale[dimension].is_finite() || dimension_scale[dimension] <= 0.0 {
                     return Err(VqError("activation importance scale is invalid"));
