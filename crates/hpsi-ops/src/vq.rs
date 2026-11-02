@@ -96,10 +96,14 @@ impl VqMatrix {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
         if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError("k-means iterations and sample limit must be non-zero"));
+            return Err(VqError(
+                "k-means iterations and sample limit must be non-zero",
+            ));
         }
         if !(1..=4).contains(&config.codebook_count) {
-            return Err(VqError("only one through four additive codebooks are supported"));
+            return Err(VqError(
+                "only one through four additive codebooks are supported",
+            ));
         }
         if !(1..=256).contains(&config.beam_width) {
             return Err(VqError("beam width must be between 1 and 256"));
@@ -109,16 +113,20 @@ impl VqMatrix {
         let group_count = expected / GROUP_SIZE;
         let sample_count = group_count.min(config.sample_limit);
         let mut samples = Vec::new();
-        samples.try_reserve_exact(sample_count)
+        samples
+            .try_reserve_exact(sample_count)
             .map_err(|_| VqError("could not allocate VQ training samples"))?;
         for sample_index in 0..sample_count {
-            let group_index = ((sample_index as u128 * group_count as u128)
-                / sample_count as u128) as usize;
-            let offset = group_index.checked_mul(GROUP_SIZE)
+            let group_index =
+                ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
+            let offset = group_index
+                .checked_mul(GROUP_SIZE)
                 .ok_or(VqError("sample element offset overflow"))?;
             let values = read_elements(offset as u64, GROUP_SIZE as u64)?;
             if values.len() != GROUP_SIZE || values.iter().any(|value| !value.is_finite()) {
-                return Err(VqError("reader returned an invalid or non-finite sample window"));
+                return Err(VqError(
+                    "reader returned an invalid or non-finite sample window",
+                ));
             }
             let mut vector = [0.0_f32; GROUP_SIZE];
             vector.copy_from_slice(&values);
@@ -131,26 +139,35 @@ impl VqMatrix {
                 .iter()
                 .map(|sample| beam_search_additive(sample, &codebooks, config.beam_width).0)
                 .collect();
-            codebooks.push(fit_codebook(&residual_samples, config.iterations, stage != 0)?);
+            codebooks.push(fit_codebook(
+                &residual_samples,
+                config.iterations,
+                stage != 0,
+            )?);
         }
 
         let selectors_per_row = selectors_per_row(cols, config.codebook_count)?;
         let bytes_per_row = selectors_per_row / 2;
-        let packed_len = rows.checked_mul(bytes_per_row)
+        let packed_len = rows
+            .checked_mul(bytes_per_row)
             .ok_or(VqError("packed index stream size overflow"))?;
         let mut packed_indices = Vec::new();
-        packed_indices.try_reserve_exact(packed_len)
+        packed_indices
+            .try_reserve_exact(packed_len)
             .map_err(|_| VqError("could not allocate packed selector stream"))?;
         packed_indices.resize(packed_len, 0);
 
         // Each row is byte-aligned by selectors_per_row(), allowing independent
         // bounded reads and direct writes into its final packed byte range.
         for row in 0..rows {
-            let first_element = row.checked_mul(cols)
+            let first_element = row
+                .checked_mul(cols)
                 .ok_or(VqError("row element offset overflow"))?;
             let values = read_elements(first_element as u64, cols as u64)?;
             if values.len() != cols || values.iter().any(|value| !value.is_finite()) {
-                return Err(VqError("reader returned an invalid or non-finite row window"));
+                return Err(VqError(
+                    "reader returned an invalid or non-finite row window",
+                ));
             }
             let destination = row * bytes_per_row;
             for (group_in_row, chunk) in values.chunks_exact(GROUP_SIZE).enumerate() {
@@ -168,7 +185,8 @@ impl VqMatrix {
             }
         }
 
-        let codebook = codebooks.into_iter()
+        let codebook = codebooks
+            .into_iter()
             .flat_map(|book| book.into_iter().flatten())
             .collect();
         Ok(Self {
@@ -902,9 +920,15 @@ mod streaming_encoder_tests {
             let expected = VqMatrix::encode(&weights, rows, cols, config).unwrap();
             let actual = VqMatrix::encode_from_reader(rows, cols, config, |first, count| {
                 let start = usize::try_from(first).map_err(|_| VqError("test offset"))?;
-                let end = start.checked_add(count as usize).ok_or(VqError("test range"))?;
-                Ok(weights.get(start..end).ok_or(VqError("test range"))?.to_vec())
-            }).unwrap();
+                let end = start
+                    .checked_add(count as usize)
+                    .ok_or(VqError("test range"))?;
+                Ok(weights
+                    .get(start..end)
+                    .ok_or(VqError("test range"))?
+                    .to_vec())
+            })
+            .unwrap();
             assert_eq!(actual.codebook(), expected.codebook());
             assert_eq!(actual.packed_indices(), expected.packed_indices());
         }
