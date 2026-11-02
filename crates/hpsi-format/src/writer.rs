@@ -889,7 +889,10 @@ impl ModelWriter {
 
 #[cfg(unix)]
 fn sync_parent_directory(parent: &Path) -> Result<()> {
-    std::fs::File::open(parent).map_err(ioerr)?.sync_all().map_err(ioerr)
+    std::fs::File::open(parent)
+        .map_err(ioerr)?
+        .sync_all()
+        .map_err(ioerr)
 }
 
 #[cfg(not(unix))]
