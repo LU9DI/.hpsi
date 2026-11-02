@@ -647,13 +647,19 @@ builds one deterministic import plan covering every source tensor.
 - The import metadata records each source tensor's name, original dtype, original
   shape, and whether it was quantized or preserved raw.
 
-The main APIs are `ModelImportPlan::build`,
+The compatibility-preserving APIs are `ModelImportPlan::build`,
 `write_model_import_to_hpsi`, and
-`write_model_import_to_hpsi_path`. The path API reopens and verifies the finished
-artifact before publishing it without replacing an existing destination. The
-generic seekable-writer API may leave partial output on error. Scalar and
-zero-sized source tensors are currently rejected; sharded model indexes and
-automatic architecture-specific tensor mapping are not yet supported. See the
+`write_model_import_to_hpsi_path`. For persisted calibration provenance, use
+`ModelImportPlan::build_with_provenance` with
+`write_model_import_to_hpsi_calibrated` or
+`write_model_import_to_hpsi_path_calibrated`. The calibrated manifest records
+model type, optional revision, dataset SHA-256, sample count, feature count, and
+statistic per calibrated source tensor; it does not copy the numeric moment
+vector. The path APIs reopen and verify the finished artifact before publishing
+it without replacing an existing destination. Generic seekable-writer APIs may
+leave partial output on error. Scalar and zero-sized source tensors are
+currently rejected; sharded model indexes and automatic architecture-specific
+tensor mapping are not yet supported. See the
 [full-model import contract](docs/full-model-safetensors-import-design.md) for
 the exact eligibility, dtype, calibration, and publication rules.
 
@@ -671,7 +677,7 @@ This produces a versioned JSON calibration document for the activation-aware VQ 
 
 ## Importing real activation calibration
 
-The Rust `hpsi-ops` crate exposes `ActivationCalibration::from_json` to validate the versioned JSON artifacts emitted by the capture utility, including layer dimensions and dataset provenance. The multi-tensor Safetensors importer accepts these calibrations through `ModelImportPlan::build`, matches each calibration to an exact source tensor name and feature count, and uses its `activation_second_moment` vector when VQ-quantizing eligible F32/F16/BF16 weights. The resulting artifact is written through `write_model_import_to_hpsi` or the verified, no-replace filesystem API `write_model_import_to_hpsi_path`. Calibration provenance itself is not yet persisted in the HPSI import metadata, and real-model quality/perplexity has not yet been established; see [the importer contract](docs/full-model-safetensors-import-design.md).
+The Rust `hpsi-ops` crate exposes `ActivationCalibration::from_json` to validate the versioned JSON artifacts emitted by the capture utility, including layer dimensions and dataset provenance. The multi-tensor Safetensors importer accepts these calibrations through `ModelImportPlan::build`, matches each calibration to an exact source tensor name and feature count, and uses its `activation_second_moment` vector when VQ-quantizing eligible F32/F16/BF16 weights. For compact calibration provenance in the resulting HPSI manifest, use `ModelImportPlan::build_with_provenance` and the calibrated writer APIs. They persist the model and dataset identity, sample and feature counts, and statistic identifier alongside the source tensor entry; raw-preserved tensors do not receive calibration metadata. The legacy writer APIs remain available without this additional metadata. Real-model quality/perplexity has not yet been established; see [the importer contract](docs/full-model-safetensors-import-design.md).
 
 ## Real Transformer activation capture
 
