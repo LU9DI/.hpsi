@@ -409,10 +409,10 @@ mod tests {
         .unwrap();
         reader.verify_all().unwrap();
         assert_eq!(reader.tensor_count(), 3);
-        assert_eq!(reader.tensor(0).unwrap().name, "bias");
+        assert_eq!(reader.metadata.tensor_names[reader.tensor(0).unwrap().name_ref as usize], "bias");
         assert_eq!(reader.read_block(0, 0).unwrap().payload, raw_bias);
-        assert_eq!(reader.tensor(1).unwrap().name, "weight.hpsi_vq.codebook");
-        assert_eq!(reader.tensor(2).unwrap().name, "weight.hpsi_vq.indices");
+        assert_eq!(reader.metadata.tensor_names[reader.tensor(1).unwrap().name_ref as usize], "weight.hpsi_vq.codebook");
+        assert_eq!(reader.metadata.tensor_names[reader.tensor(2).unwrap().name_ref as usize], "weight.hpsi_vq.indices");
         assert_eq!(
             reader.metadata().value["user"]["source_tensors"][0]["source_dtype"],
             "F32"
@@ -449,8 +449,8 @@ mod tests {
             .map(|tensor| tensor.tensor_id)
             .collect();
         assert_eq!(names, vec![0, 1, 2, 3]);
-        assert_eq!(reader.tensor(0).unwrap().name, "a.hpsi_vq.codebook");
-        assert_eq!(reader.tensor(2).unwrap().name, "b.hpsi_vq.codebook");
+        assert_eq!(reader.metadata.tensor_names[reader.tensor(0).unwrap().name_ref as usize], "a.hpsi_vq.codebook");
+        assert_eq!(reader.metadata.tensor_names[reader.tensor(2).unwrap().name_ref as usize], "b.hpsi_vq.codebook");
     }
 
     #[test]
