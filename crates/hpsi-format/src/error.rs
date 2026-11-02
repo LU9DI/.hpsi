@@ -31,7 +31,10 @@ impl fmt::Display for FormatError {
             Self::InvalidRegion(message) => write!(f, "invalid HPSI region: {message}"),
             Self::LimitExceeded(message) => write!(f, "reader limit exceeded: {message}"),
             Self::Truncated { expected, actual } => {
-                write!(f, "truncated input: expected {expected} bytes, got {actual}")
+                write!(
+                    f,
+                    "truncated input: expected {expected} bytes, got {actual}"
+                )
             }
             Self::ArithmeticOverflow(context) => {
                 write!(f, "integer overflow while calculating {context}")
