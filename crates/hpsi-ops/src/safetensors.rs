@@ -312,9 +312,9 @@ impl SafeTensorFile {
             {
                 *slot = match tensor.dtype.as_str() {
                     "F32" => f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-                    "BF16" => f32::from_bits(
-                        u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16,
-                    ),
+                    "BF16" => {
+                        f32::from_bits(u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16)
+                    }
                     "F16" => f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])),
                     _ => return Err(SafeTensorError::UnsupportedDtype),
                 };
