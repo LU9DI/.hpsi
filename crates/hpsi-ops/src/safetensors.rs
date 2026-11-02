@@ -100,6 +100,6 @@ mod tests {
  #[test] fn rejects_overlapping_tensor_ranges(){
   let header=br#"{"a":{"dtype":"U8","shape":[2],"data_offsets":[0,2]},"b":{"dtype":"U8","shape":[2],"data_offsets":[1,3]}}"#;
   let mut bytes=Vec::new();bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());bytes.extend_from_slice(header);bytes.extend_from_slice(&[1,2,3]);
-  assert_eq!(SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),4096).unwrap_err(),SafeTensorError::InvalidTensor);
+  let result=SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),4096);\n  assert!(matches!(result,Err(SafeTensorError::InvalidTensor)));
  }
 }
