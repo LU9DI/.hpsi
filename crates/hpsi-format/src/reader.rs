@@ -427,13 +427,6 @@ fn validate_directories(
         ));
     }
 
-    // Keep only block indices while sorting payload ranges. A pair of u64
-    // endpoints costs 16 bytes per block; usize indices cost 8 bytes on
-    // 64-bit targets and let us read validated descriptors in place.
-    let mut payload_order = Vec::new();
-    payload_order
-        .try_reserve_exact(blocks.len())
-        .map_err(|_| FormatError::LimitExceeded("payload order allocation failed"))?;
     let mut payload_ranges = Vec::new();
     payload_ranges
         .try_reserve_exact(blocks.len())
@@ -519,27 +512,40 @@ fn validate_directories(
         }
     }
 
-    payload_order.extend(0..blocks.len());
-    payload_order.sort_unstable_by_key(|&index| blocks[index].payload_offset);
-    let mut previous_payload_end = None;
-    for index in payload_order {
-        let block = &blocks[index];
-        let payload_end = block
-            .payload_offset
-            .checked_add(block.payload_length)
-            .ok_or(FormatError::ArithmeticOverflow("block payload end"))?;
-        if previous_payload_end.is_some_and(|end| end > block.payload_offset) {
-            return Err(FormatError::InvalidDirectory(
-                "block payload ranges overlap",
-            ));
-        }
-        previous_payload_end = Some(payload_end);
-    }
+    validate_payload_ranges(blocks)?;
 
     validate_integrity_coverage(blocks, integrity)?;
 
     validate_reference_cycles(tensors, blocks, &lookup)?;
     Ok(lookup)
+}
+
+fn validate_payload_ranges(blocks: &[BlockDescriptor]) -> Result<()> {
+    // Sort compact indices instead of allocating (start, end) pairs for every
+    // block. Track the furthest end, not merely the previous interval: this
+    // also catches a short interval nested inside an earlier long interval.
+    let mut order = Vec::new();
+    order
+        .try_reserve_exact(blocks.len())
+        .map_err(|_| FormatError::LimitExceeded("payload order allocation failed"))?;
+    order.extend(0..blocks.len());
+    order.sort_unstable_by_key(|&index| blocks[index].payload_offset);
+
+    let mut furthest_end = None;
+    for index in order {
+        let block = &blocks[index];
+        let end = block
+            .payload_offset
+            .checked_add(block.payload_length)
+            .ok_or(FormatError::ArithmeticOverflow("block payload end"))?;
+        if furthest_end.is_some_and(|previous| previous > block.payload_offset) {
+            return Err(FormatError::InvalidDirectory(
+                "block payload ranges overlap",
+            ));
+        }
+        furthest_end = Some(furthest_end.map_or(end, |previous: u64| previous.max(end)));
+    }
+    Ok(())
 }
 
 fn validate_integrity_coverage(
@@ -810,7 +816,9 @@ impl Crc32c {
 
 #[cfg(test)]
 mod tests {
-    use super::{Crc32c, validate_acyclic_references, verify_padding_regions};
+    use super::{
+        Crc32c, validate_acyclic_references, validate_payload_ranges, verify_padding_regions,
+    };
     use crate::{
         BlockDescriptor, DType, FormatError, RandomAccessSource, Region, Result, TensorDescriptor,
     };
@@ -1040,6 +1048,49 @@ mod tests {
             Err(FormatError::InvalidReference(
                 "tensor representation reference is missing"
             ))
+        ));
+    }
+
+    fn payload_block(offset: u64, length: u64) -> BlockDescriptor {
+        BlockDescriptor {
+            tensor_id: 1,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: length,
+            payload_offset: offset,
+            payload_length: length,
+            auxiliary_ref: None,
+            checksum_index: None,
+        }
+    }
+
+    #[test]
+    fn payload_range_validation_accepts_adjacency_and_empty_ranges() {
+        let blocks = [payload_block(100, 10), payload_block(110, 5), payload_block(115, 0)];
+        assert!(validate_payload_ranges(&blocks).is_ok());
+    }
+
+    #[test]
+    fn payload_range_validation_rejects_nested_overlap() {
+        let blocks = [
+            payload_block(100, 100),
+            payload_block(110, 10),
+            payload_block(130, 10),
+        ];
+        assert!(matches!(
+            validate_payload_ranges(&blocks),
+            Err(FormatError::InvalidDirectory("block payload ranges overlap"))
+        ));
+    }
+
+    #[test]
+    fn payload_range_validation_rejects_equal_start_offsets() {
+        let blocks = [payload_block(100, 10), payload_block(100, 5)];
+        assert!(matches!(
+            validate_payload_ranges(&blocks),
+            Err(FormatError::InvalidDirectory("block payload ranges overlap"))
         ));
     }
 
