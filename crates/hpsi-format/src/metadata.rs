@@ -54,7 +54,9 @@ impl Metadata {
             return Err(FormatError::LimitExceeded("metadata tensor name count"));
         }
 
-        let mut seen = HashSet::new();
+        // Borrow names from the parsed JSON tree for duplicate detection.
+        // This avoids allocating a second owned String for every tensor name.
+        let mut seen: HashSet<&str> = HashSet::new();
         seen.try_reserve(names.len())
             .map_err(|_| FormatError::LimitExceeded("tensor name index allocation failed"))?;
         let mut tensor_names = Vec::new();
@@ -70,7 +72,7 @@ impl Metadata {
                     "tensor name is empty, contains NUL, or exceeds limit",
                 ));
             }
-            if !seen.insert(name.to_owned()) {
+            if !seen.insert(name) {
                 return Err(FormatError::InvalidMetadata("duplicate tensor name"));
             }
             tensor_names.push(name.to_owned());
