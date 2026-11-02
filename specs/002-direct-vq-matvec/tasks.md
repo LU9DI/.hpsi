@@ -18,3 +18,5 @@
 - [x] T016 Add a `FileSource` benchmark using real temporary HPSI files and warm page-cache random-access reads; verify selected-row output parity and report index bytes read.
 - [ ] T017 Run pinned local CPU benchmarks on transformer-shaped matrices and cold/warm file-backed HPSI artifacts.
 - [ ] T018 Add a GPU kernel only after pinned CPU profiling and storage measurements.
+
+- [ ] T019 Evaluate beam-search additive assignment across widths 1, 2, 4, 8, and 16; choose a quality/encode-time tradeoff using held-out data.
