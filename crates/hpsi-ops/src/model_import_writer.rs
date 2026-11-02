@@ -2,10 +2,11 @@ use crate::{
     CODEBOOK_SIZE, GROUP_SIZE, ModelImportPlan, SafeTensorFile, TensorDisposition, VqConfig,
     VqError, VqMatrix,
 };
-use hpsi_format::{DType, ModelWriter, StreamingTensorInput, WriterStats};
+use hpsi_format::{DType, FileSource, ModelReader, ModelWriter, ReaderLimits, StreamingTensorInput, WriterStats};
 use serde_json::json;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
+use std::path::Path;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -88,7 +89,63 @@ fn source_dtype(dtype: &str) -> Result<DType, VqError> {
     }
 }
 
+
+static IMPORT_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Build, reopen, verify, and publish a model import without exposing a partial
+/// destination. The destination is never overwritten; temporary output is
+/// created in the same directory so publication can use a hard link.
+pub fn write_model_import_to_hpsi_path(
+    source: &SafeTensorFile,
+    plan: &ModelImportPlan,
+    destination: impl AsRef<Path>,
+    config: VqConfig,
+    block_rows: usize,
+) -> Result<WriterStats, VqError> {
+    let destination = destination.as_ref();
+    if destination.file_name().is_none() {
+        return Err(VqError("destination must name a file"));
+    }
+    let parent = destination.parent()
+        .filter(|value| !value.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let (temporary_path, mut temporary_file) = {
+        let mut created = None;
+        for _ in 0..128 {
+            let sequence = IMPORT_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate = parent.join(format!(".hpsi-import-{}-{sequence}.tmp", std::process::id()));
+            match OpenOptions::new().read(true).write(true).create_new(true).open(&candidate) {
+                Ok(file) => { created = Some((candidate, file)); break; }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(_) => return Err(VqError("could not create temporary HPSI output")),
+            }
+        }
+        created.ok_or(VqError("could not allocate temporary HPSI output"))?
+    };
+    let result = (|| {
+        let stats = write_model_import_to_hpsi(source, plan, &mut temporary_file, config, block_rows)?;
+        temporary_file.sync_all().map_err(|_| VqError("could not sync temporary HPSI output"))?;
+        drop(temporary_file);
+        let file_source = Arc::new(FileSource::open(&temporary_path)
+            .map_err(|_| VqError("could not reopen temporary HPSI output"))?);
+        let reader = ModelReader::open(file_source, &ReaderLimits::default())
+            .map_err(|_| VqError("temporary HPSI output failed to reopen"))?;
+        reader.verify_all().map_err(|_| VqError("temporary HPSI output failed integrity verification"))?;
+        fs::hard_link(&temporary_path, destination)
+            .map_err(|_| VqError("could not publish HPSI output without overwriting"))?;
+        #[cfg(unix)]
+        if let Ok(directory) = fs::File::open(parent) { let _ = directory.sync_all(); }
+        Ok(stats)
+    })();
+    drop(temporary_file);
+    let _ = fs::remove_file(&temporary_path);
+    result
+}
+
 /// Write a complete deterministic Safetensors import as one HPSI artifact.
+///
+/// On error, `output` may contain a partial artifact. Callers requiring
+/// all-or-nothing publication should use `write_model_import_to_hpsi_path`.
 /// Intermediate payloads are disk-backed; memory is bounded by VQ samples,
 /// one source row, codebooks, directory metadata, and a 64 KiB transfer buffer.
 pub fn write_model_import_to_hpsi<W: Write + Seek>(
@@ -666,3 +723,13 @@ mod tests {
         assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
     }
 }
+    #[test]
+    fn import_spool_is_removed_when_dropped() {
+        let spool = ImportSpool::create().unwrap();
+        let path = spool.path.clone();
+        assert!(path.exists());
+        drop(spool);
+        assert!(!path.exists());
+    }
+
+
