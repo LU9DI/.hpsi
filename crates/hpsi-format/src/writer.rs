@@ -1,6 +1,8 @@
 use crate::{DType, FileSource, FormatError, ModelReader, ReaderLimits, Result};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
@@ -769,6 +771,14 @@ fn crc32c(b: &[u8]) -> u32 {
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+fn open_temporary_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(path)
+}
+
 impl ModelWriter {
     /// Stream, sync, reopen, and verify an artifact before publication.
     /// Existing destinations are never overwritten. A parent-directory sync failure
@@ -795,12 +805,7 @@ impl ModelWriter {
             for _ in 0..128 {
                 let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
-                match OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create_new(true)
-                    .open(&candidate)
-                {
+                match open_temporary_file(&candidate) {
                     Ok(file) => {
                         created = Some((candidate, file));
                         break;
@@ -857,12 +862,7 @@ impl ModelWriter {
             for _ in 0..128 {
                 let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
-                match OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create_new(true)
-                    .open(&candidate)
-                {
+                match open_temporary_file(&candidate) {
                     Ok(file) => {
                         created = Some((candidate, file));
                         break;
@@ -939,6 +939,29 @@ mod streaming_writer_tests {
             dimensions: vec![1],
             block_lengths: vec![1],
         }]
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_streaming_temporary_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (directory, destination) = test_output_path("private-temp");
+        let result = ModelWriter::write_path_streaming(
+            &destination,
+            &one_byte_streaming_tensor(),
+            |_, _, writer| {
+                writer.write_all(&[42]).map_err(ioerr)?;
+                Ok(1)
+            },
+        );
+        assert!(result.is_ok());
+        assert_eq!(
+            std::fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]
