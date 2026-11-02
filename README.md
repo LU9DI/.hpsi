@@ -640,3 +640,14 @@ cargo run -p hpsi-cli -- calibrate activations.hpsi 42 > layer-0-calibration.jso
 
 This produces a versioned JSON calibration document for the activation-aware VQ API. It does not capture activations from a Transformer itself; the tensor must first be exported into HPSI. See [activation calibration documentation](docs/activation-calibration.md) for the accepted tensor layout, output schema, streaming guarantees, and limitations.
 
+## Real Transformer activation capture
+
+A CPU-first capture utility is available for local Hugging Face causal language models:
+
+```bash
+python -m pip install torch transformers
+python tools/capture_transformer_activations.py --model ./models/local-causal-lm --dataset ./calibration.jsonl --output-dir ./artifacts/calibration
+```
+
+It hooks standard `torch.nn.Linear` inputs, accumulates diagonal second moments online, and emits one HPSI-compatible calibration JSON per layer plus a provenance manifest. The model/tokenizer must already be local; the tool uses `local_files_only` and does not download weights. See [Transformer activation capture](docs/transformer-activation-capture.md) for constraints and reproducibility details. This exporter has not yet been validated against a real model in this repository's CI; CI currently checks its Python syntax and dependency-free helper tests.
+
