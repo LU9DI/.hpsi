@@ -594,15 +594,16 @@ fn next_reference(
     blocks: &[BlockDescriptor],
     lookup: &HashMap<u32, usize>,
     node: usize,
-    representation_pending: &mut bool,
     next_block: &mut usize,
 ) -> Result<Option<usize>> {
     let tensor = tensors.get(node).ok_or(FormatError::InvalidReference(
         "reference graph node is out of range",
     ))?;
 
-    if *representation_pending {
-        *representation_pending = false;
+    // usize::MAX marks the representation edge as not yet visited.
+    // This avoids a bool (and its alignment padding) in every DFS stack frame.
+    if *next_block == usize::MAX {
+        *next_block = 0;
         if let Some(reference) = tensor.representation_ref {
             let id = u32::try_from(reference).map_err(|_| {
                 FormatError::InvalidReference("tensor representation ID exceeds supported width")
@@ -659,7 +660,7 @@ fn validate_acyclic_references(
         .map_err(|_| FormatError::LimitExceeded("reference traversal allocation failed"))?;
     color.resize(tensors.len(), 0_u8);
 
-    let mut stack: Vec<(usize, usize, bool)> = Vec::new();
+    let mut stack: Vec<(usize, usize)> = Vec::new();
     for start in 0..tensors.len() {
         if color[start] != 0 {
             continue;
@@ -668,15 +669,14 @@ fn validate_acyclic_references(
         stack.try_reserve(1).map_err(|_| {
             FormatError::LimitExceeded("reference traversal stack allocation failed")
         })?;
-        stack.push((start, 0, true));
+        stack.push((start, usize::MAX));
 
-        while let Some((node, next_block, representation_pending)) = stack.last_mut() {
+        while let Some((node, next_block)) = stack.last_mut() {
             let dependency = next_reference(
                 tensors,
                 blocks,
                 lookup,
                 *node,
-                representation_pending,
                 next_block,
             )?;
             let Some(dependency) = dependency else {
@@ -703,7 +703,7 @@ fn validate_acyclic_references(
                     stack.try_reserve(1).map_err(|_| {
                         FormatError::LimitExceeded("reference traversal stack allocation failed")
                     })?;
-                    stack.push((dependency, 0, true));
+                    stack.push((dependency, usize::MAX));
                 }
             }
         }
