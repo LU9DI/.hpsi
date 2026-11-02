@@ -17,7 +17,7 @@ A future `encode_model_to_hpsi` API should accept a source file, VQ configuratio
 - deterministic source ordering independent of JSON object iteration;
 - an explicit outcome: quantized, copied losslessly, or skipped with a machine-readable reason.
 
-The importer must not silently drop unsupported tensors. The default policy should fail closed when a tensor would otherwise be omitted. A caller may opt into a documented skip policy and receive a complete report.
+The importer must not silently drop unsupported tensors. The default policy should fail closed when a tensor would otherwise be omitted. A caller may opt into lossless raw preservation for unsupported tensors; skipping tensors is not an accepted import policy.
 
 ## Streaming architecture
 
@@ -48,7 +48,7 @@ Before describing complete-model import as available, add tests for:
 - deterministic output planning when Safetensors header keys arrive in a different order;
 - duplicate generated-name and source-name collision rejection;
 - exact calibration-name and feature-count matching;
-- mixed supported and unsupported dtypes under both fail-closed and explicit skip policies;
+- mixed supported and unsupported dtypes under fail-closed and lossless raw-preservation policies;
 - bounded spool reads/writes across block boundaries;
 - failure during staging and during final writing leaves no published partial destination and cleans temporary files;
 - `ModelReader::verify_all` succeeds for the final artifact and all manifest mappings resolve.
