@@ -231,7 +231,10 @@ impl VqMatrix {
     {
         let mut packed_indices = Vec::new();
         let codebook = Self::encode_from_reader_activation_aware_to(
-            rows, cols, config, activation_second_moment,
+            rows,
+            cols,
+            config,
+            activation_second_moment,
             |offset, count| read_elements(offset, count),
             |_, row| {
                 packed_indices.extend_from_slice(row);
@@ -239,8 +242,11 @@ impl VqMatrix {
             },
         )?;
         Ok(Self {
-            rows, cols, codebook_count: config.codebook_count,
-            codebook, packed_indices,
+            rows,
+            cols,
+            codebook_count: config.codebook_count,
+            codebook,
+            packed_indices,
         })
     }
 
@@ -263,14 +269,22 @@ impl VqMatrix {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
         if activation_second_moment.len() != cols
-            || activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0)
+            || activation_second_moment
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
         {
-            return Err(VqError("activation importance must contain one finite non-negative value per column"));
+            return Err(VqError(
+                "activation importance must contain one finite non-negative value per column",
+            ));
         }
         let mut dimension_scale = [1.0_f32; GROUP_SIZE];
         for (dimension, scale) in dimension_scale.iter_mut().enumerate() {
-            let mean = activation_second_moment.iter().skip(dimension)
-                .step_by(GROUP_SIZE).map(|value| f64::from(*value)).sum::<f64>()
+            let mean = activation_second_moment
+                .iter()
+                .skip(dimension)
+                .step_by(GROUP_SIZE)
+                .map(|value| f64::from(*value))
+                .sum::<f64>()
                 / (cols / GROUP_SIZE) as f64;
             *scale = mean.max(1.0e-30).sqrt() as f32;
             if !scale.is_finite() || *scale <= 0.0 {
@@ -278,14 +292,18 @@ impl VqMatrix {
             }
         }
         let mut codebook = Self::encode_from_reader_to(
-            rows, cols, config,
+            rows,
+            cols,
+            config,
             |first, count| {
                 let mut values = read_elements(first, count)?;
                 let start = usize::try_from(first)
                     .map_err(|_| VqError("reader offset exceeds address space"))?;
                 for (index, value) in values.iter_mut().enumerate() {
-                    let column = start.checked_add(index)
-                        .ok_or(VqError("reader column offset overflow"))? % cols;
+                    let column = start
+                        .checked_add(index)
+                        .ok_or(VqError("reader column offset overflow"))?
+                        % cols;
                     *value *= dimension_scale[column % GROUP_SIZE];
                     if !value.is_finite() {
                         return Err(VqError("activation-scaled source window is non-finite"));
@@ -1177,9 +1195,7 @@ mod streaming_activation_row_tests {
         let weights: Vec<f32> = (0..rows * cols)
             .map(|index| ((index * 13 % 29) as f32 - 14.0) / 9.0)
             .collect();
-        let importance: Vec<f32> = (0..cols)
-            .map(|index| (index + 1) as f32 / 3.0)
-            .collect();
+        let importance: Vec<f32> = (0..cols).map(|index| (index + 1) as f32 / 3.0).collect();
         let config = VqConfig {
             iterations: 5,
             sample_limit: 64,
@@ -1187,15 +1203,22 @@ mod streaming_activation_row_tests {
             beam_width: 8,
         };
         let buffered = VqMatrix::encode_from_reader_activation_aware(
-            rows, cols, config, &importance,
+            rows,
+            cols,
+            config,
+            &importance,
             |offset, count| {
                 let start = offset as usize;
                 Ok(weights[start..start + count as usize].to_vec())
             },
-        ).unwrap();
+        )
+        .unwrap();
         let mut emitted = Vec::new();
         let codebook = VqMatrix::encode_from_reader_activation_aware_to(
-            rows, cols, config, &importance,
+            rows,
+            cols,
+            config,
+            &importance,
             |offset, count| {
                 let start = offset as usize;
                 Ok(weights[start..start + count as usize].to_vec())
@@ -1204,7 +1227,8 @@ mod streaming_activation_row_tests {
                 emitted.extend_from_slice(row);
                 Ok(())
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(codebook, buffered.codebook());
         assert_eq!(emitted, buffered.packed_indices());
     }
