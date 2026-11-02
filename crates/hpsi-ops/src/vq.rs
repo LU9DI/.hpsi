@@ -28,7 +28,12 @@ impl TemporarySpool {
                 .create_new(true)
                 .open(&path)
             {
-                Ok(file) => return Ok(Self { path, file: Some(file) }),
+                Ok(file) => {
+                    return Ok(Self {
+                        path,
+                        file: Some(file),
+                    });
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(_) => return Err(VqError("could not create temporary selector spool")),
             }
@@ -39,20 +44,32 @@ impl TemporarySpool {
 
 impl Read for TemporarySpool {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        self.file.as_mut().expect("temporary spool file is open").read(buffer)
+        self.file
+            .as_mut()
+            .expect("temporary spool file is open")
+            .read(buffer)
     }
 }
 impl Write for TemporarySpool {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.file.as_mut().expect("temporary spool file is open").write(buffer)
+        self.file
+            .as_mut()
+            .expect("temporary spool file is open")
+            .write(buffer)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        self.file.as_mut().expect("temporary spool file is open").flush()
+        self.file
+            .as_mut()
+            .expect("temporary spool file is open")
+            .flush()
     }
 }
 impl Seek for TemporarySpool {
     fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
-        self.file.as_mut().expect("temporary spool file is open").seek(position)
+        self.file
+            .as_mut()
+            .expect("temporary spool file is open")
+            .seek(position)
     }
 }
 impl Drop for TemporarySpool {
