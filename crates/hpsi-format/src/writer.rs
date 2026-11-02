@@ -716,3 +716,57 @@ impl ModelWriter {
         result
     }
 }
+ 
+#[cfg(test)]
+mod streaming_writer_tests {
+    use super::*;
+    use crate::MemorySource;
+    use std::io::Cursor;
+
+    #[test]
+    fn streaming_writer_roundtrips_and_verifies_block_integrity() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 7,
+            name: "weights".to_owned(),
+            dtype: DType::U8,
+            dimensions: vec![6],
+            block_lengths: vec![2, 4],
+        }];
+        let payloads = [vec![1_u8, 2], vec![3_u8, 4, 5, 6]];
+        let mut output = Cursor::new(Vec::new());
+        let stats = ModelWriter::write_streaming(
+            &mut output,
+            &tensors,
+            |tensor_index, block_index, writer| {
+                assert_eq!(tensor_index, 0);
+                writer.write_all(&payloads[block_index]).map_err(ioerr)?;
+                Ok(payloads[block_index].len() as u64)
+            },
+        ).unwrap();
+        assert_eq!(stats.payload_bytes, 6);
+        assert_eq!(stats.block_count, 2);
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        ).unwrap();
+        reader.verify_all().unwrap();
+        assert_eq!(reader.read_tensor(7).unwrap(), [1_u8, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn streaming_writer_rejects_declared_length_mismatch() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "payload".to_owned(),
+            dtype: DType::U8,
+            dimensions: vec![3],
+            block_lengths: vec![3],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, writer| {
+            writer.write_all(&[1_u8, 2]).map_err(ioerr)?;
+            Ok(2)
+        });
+        assert!(matches!(result, Err(FormatError::InvalidBlock(_))));
+    }
+}
