@@ -34,7 +34,6 @@ impl Default for ReaderLimits {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::ReaderLimits;
