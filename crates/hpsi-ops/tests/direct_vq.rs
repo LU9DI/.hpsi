@@ -1,5 +1,5 @@
 use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits};
-use hpsi_ops::{VqConfig, VqMatrix, VqMatrixView, matvec_hpsi_rows};
+use hpsi_ops::{HpsiVqLayout, VqConfig, VqMatrix, VqMatrixView, matvec_hpsi_rows};
 use std::io::Cursor;
 use std::sync::Arc;
 
