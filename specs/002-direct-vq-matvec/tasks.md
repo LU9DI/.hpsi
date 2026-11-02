@@ -24,3 +24,5 @@
 
 - [x] T021 Add activation-aware VQ fitting using diagonal activation second moments, validate malformed calibration vectors, and benchmark weighted error at unchanged representation size on deterministic synthetic activations.
 - [ ] T022 Capture calibration activations from real transformer layers; evaluate layer-output error, perplexity/task quality, and per-layer importance strategies beyond diagonal shared-position averages.
+- [x] T023 Add a streaming CLI calibration command for rank-2 RAW F32 activation tensors in HPSI; emit versioned diagonal second-moment JSON and test unaligned block boundaries, payload accounting, and non-finite rejection.
+- [ ] T024 Add a reproducible exporter for real transformer activations, pinning model/tokenizer revisions, calibration data, layer identity, sequence handling, and export provenance.
