@@ -54,6 +54,15 @@ const MAX_WRITER_BLOCK_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_WRITER_FILE_BYTES: u64 = 1_u64 << 40;
 const MAX_WRITER_TENSOR_LOGICAL_BYTES: u64 = 1_u64 << 40;
 
+fn clone_writer_name(name: &str) -> Result<String> {
+    let mut cloned = String::new();
+    cloned
+        .try_reserve_exact(name.len())
+        .map_err(|_| FormatError::LimitExceeded("writer tensor name allocation"))?;
+    cloned.push_str(name);
+    Ok(cloned)
+}
+
 impl ModelWriter {
     /// Stream tensor payload blocks directly to the output.
     ///
@@ -104,6 +113,9 @@ impl ModelWriter {
             .try_reserve_exact(tensors.len())
             .map_err(|_| FormatError::LimitExceeded("writer tensor names"))?;
         let mut name_set = std::collections::HashSet::new();
+        name_set
+            .try_reserve(tensors.len())
+            .map_err(|_| FormatError::LimitExceeded("writer tensor name index allocation"))?;
         let mut previous_id = None;
         let mut block_count = 0usize;
         let mut payload_bytes = 0u64;
@@ -152,7 +164,7 @@ impl ModelWriter {
                     .checked_add(*length)
                     .ok_or(FormatError::ArithmeticOverflow("payload size"))?;
             }
-            names.push(tensor.name.clone());
+            names.push(clone_writer_name(&tensor.name)?);
         }
         if block_count > MAX_WRITER_BLOCKS || block_count > u32::MAX as usize {
             return Err(FormatError::LimitExceeded("writer block count"));
@@ -452,7 +464,7 @@ impl ModelWriter {
                     .checked_add(b.bytes.len() as u64)
                     .ok_or(FormatError::ArithmeticOverflow("payload size"))?;
             }
-            names.push(t.name.clone());
+            names.push(clone_writer_name(&t.name)?);
         }
         if block_count > MAX_WRITER_BLOCKS || block_count > u32::MAX as usize {
             return Err(FormatError::LimitExceeded("writer block count"));
