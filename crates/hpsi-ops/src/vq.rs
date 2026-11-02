@@ -174,14 +174,12 @@ impl VqMatrix {
                 let mut residual = [0.0_f32; GROUP_SIZE];
                 residual.copy_from_slice(chunk);
                 let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
-                let global_group = row * (cols / GROUP_SIZE) + group_in_row;
-                for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
+                                for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                     let selector_in_row = group_in_row * config.codebook_count + stage;
                     let byte_index = destination + selector_in_row / 2;
                     let shift = (selector_in_row % 2) * 4;
                     packed_indices[byte_index] |= *code << shift;
                 }
-                let _ = global_group; // retained as an explicit row/group mapping invariant
             }
         }
 
