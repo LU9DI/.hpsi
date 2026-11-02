@@ -56,7 +56,11 @@ impl ModelImportPlan {
         }
         let mut names: Vec<_> = source.tensors().iter().collect();
         names.sort_by(|a, b| a.name.cmp(&b.name));
-        let source_names: HashSet<&str> = source.tensors().iter().map(|tensor| tensor.name.as_str()).collect();
+        let source_names: HashSet<&str> = source
+            .tensors()
+            .iter()
+            .map(|tensor| tensor.name.as_str())
+            .collect();
         let mut generated_names = HashSet::new();
         let mut tensors = Vec::with_capacity(names.len());
 
