@@ -1377,23 +1377,33 @@ mod hpsi_streaming_export_tests {
         let mut output = Cursor::new(Vec::new());
         let mut spool = Cursor::new(Vec::new());
         let stats = VqMatrix::encode_from_reader_to_hpsi(
-            &mut output, &mut spool, rows, cols, config, 3,
+            &mut output,
+            &mut spool,
+            rows,
+            cols,
+            config,
+            3,
             |offset, count| {
                 let start = offset as usize;
                 Ok(weights[start..start + count as usize].to_vec())
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(stats.tensor_count, 2);
         assert_eq!(stats.block_count, 4);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
         let mut selectors = Vec::new();
         for block_id in 0..3 {
             selectors.extend_from_slice(&reader.read_block(1, block_id).unwrap().payload);
         }
-        assert_eq!(selectors.len(), rows * (cols / GROUP_SIZE * config.codebook_count) / 2);
+        assert_eq!(
+            selectors.len(),
+            rows * (cols / GROUP_SIZE * config.codebook_count) / 2
+        );
     }
 }
