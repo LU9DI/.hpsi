@@ -27,28 +27,50 @@ fn run(args: Vec<String>) -> Result<(), String> {
 
     match command {
         "inspect" => {
-            println!("HPSI {}.{}", reader.header.format_major, reader.header.format_minor);
+            println!(
+                "HPSI {}.{}",
+                reader.header.format_major, reader.header.format_minor
+            );
             println!("file_size: {} bytes", reader.header.file_size);
             println!("tensors: {}", reader.tensor_count());
             println!("blocks: {}", reader.block_count());
             println!("metadata: {} bytes", reader.header.metadata.length);
             println!("payload_region: {} bytes", reader.header.payload.length);
             for tensor in reader.tensors() {
-                let name = reader.metadata.tensor_names.get(tensor.name_ref as usize)
-                    .map(String::as_str).unwrap_or("<invalid-name-ref>");
+                let name = reader
+                    .metadata
+                    .tensor_names
+                    .get(tensor.name_ref as usize)
+                    .map(String::as_str)
+                    .unwrap_or("<invalid-name-ref>");
                 let shape = tensor.dimensions[..usize::from(tensor.rank)]
-                    .iter().map(u64::to_string).collect::<Vec<_>>().join("x");
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join("x");
                 let stored = (0..tensor.block_count).try_fold(0u64, |sum, block_id| {
-                    let block = reader.block(tensor.tensor_id, block_id).map_err(|e| e.to_string())?;
-                    sum.checked_add(block.payload_length).ok_or_else(|| "stored byte count overflow".to_owned())
+                    let block = reader
+                        .block(tensor.tensor_id, block_id)
+                        .map_err(|e| e.to_string())?;
+                    sum.checked_add(block.payload_length)
+                        .ok_or_else(|| "stored byte count overflow".to_owned())
                 })?;
                 println!(
                     "tensor id={} name={} dtype={:?} shape={} codec={} blocks={} logical_bytes={} stored_bytes={}",
-                    tensor.tensor_id, name, tensor.dtype, shape, tensor.codec, tensor.block_count,
-                    tensor.logical_nbytes, stored
+                    tensor.tensor_id,
+                    name,
+                    tensor.dtype,
+                    shape,
+                    tensor.codec,
+                    tensor.block_count,
+                    tensor.logical_nbytes,
+                    stored
                 );
             }
-            println!("payload_bytes_read_during_inspect: {}", reader.stats().payload_bytes_read);
+            println!(
+                "payload_bytes_read_during_inspect: {}",
+                reader.stats().payload_bytes_read
+            );
             Ok(())
         }
         "verify" => {
