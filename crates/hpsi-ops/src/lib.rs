@@ -15,5 +15,5 @@ pub use safetensors::{SafeTensorError, SafeTensorFile, SafeTensorInfo};
 
 pub use vq::{
     CODEBOOK_SIZE, GROUP_SIZE, HpsiVqExecutor, HpsiVqLayout, VqConfig, VqError, VqMatrix,
-    VqMatrixView, VqTensorNames, matvec_hpsi_rows,
+    VqMatrixView, VqHpsiExportOptions, VqTensorNames, matvec_hpsi_rows,
 };
