@@ -589,8 +589,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 let total_indices = (rows as u64)
                     .checked_mul(bytes_per_row as u64)
                     .ok_or(VqError("selector payload size overflow"))?;
-                let selector_block_count = rows / block_rows
-                    + usize::from(rows % block_rows != 0);
+                let selector_block_count = rows / block_rows + usize::from(rows % block_rows != 0);
                 let mut lengths = Vec::new();
                 lengths
                     .try_reserve_exact(selector_block_count)
