@@ -613,12 +613,12 @@ An isolated `fuzz/` package contains libFuzzer targets for the header parser and
 
 The new `hpsi-ops` crate contains the first compute primitive over a compressed representation:
 
-- Groups of eight adjacent F32 weights use a shared 16-entry codebook of 8-value F32 centroids.
-- Single-codebook mode uses 4 selector bits per group (0.5 bits/weight). Additive mode uses a primary and residual codebook with 8 selector bits per group (1 bit/weight).
+- Groups of eight adjacent F32 weights use shared 16-entry codebooks of 8-value F32 centroids.
+- One through four additive codebooks are supported, with one 4-bit selector per codebook and group (0.5–2 bits/weight before codebooks and container overhead). Residual stages reserve a zero centroid so each additional stage cannot increase weight-domain reconstruction error.
 - `VqMatrixView::matvec` computes directly from packed selectors and codebook values. It does not reconstruct a dense weight matrix.
 - `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; an integration test reads those blocks back and runs the same operation.
 
-The selector stream costs 0.5 bits/weight in single-codebook mode or 1 bit/weight in additive mode, before codebooks and container overhead. In the current synthetic benchmark, additive quantization improves relative L2 error from 0.763 to 0.589, but that error remains high and the direct CPU kernel is slower than dense F32. These are experimental measurements, **not** evidence of production model quality.
+The selector stream costs 0.5, 1, 1.5, or 2 bits/weight for one through four codebooks, before codebooks and container overhead. The recorded two-codebook synthetic run improved relative L2 error from 0.763 to 0.589, but that error remained high and the direct CPU kernel was slower than dense F32. The benchmark now sweeps all four rates; new results must be recorded before drawing conclusions. These are experimental measurements, **not** evidence of production model quality.
 
 See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](specs/002-direct-vq-matvec/plan.md), and [tasks](specs/002-direct-vq-matvec/tasks.md).
 
