@@ -1568,6 +1568,26 @@ mod streaming_activation_row_tests {
         .unwrap();
         assert_eq!(codebook, buffered.codebook());
         assert_eq!(emitted, buffered.packed_indices());
+
+        let mut reused_emitted = Vec::new();
+        let reused_codebook = VqMatrix::encode_from_reader_activation_aware_into(
+            rows,
+            cols,
+            config,
+            &importance,
+            |offset, target| {
+                let start = offset as usize;
+                target.copy_from_slice(&weights[start..start + target.len()]);
+                Ok(())
+            },
+            |_, row| {
+                reused_emitted.extend_from_slice(row);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(reused_codebook, codebook);
+        assert_eq!(reused_emitted, emitted);
     }
 }
 
