@@ -65,43 +65,66 @@ impl ModelReader {
         source.read_exact_at(0, &mut header_bytes)?;
         let header = Header::parse(&header_bytes, actual_len, limits)?;
 
-        let metadata_bytes = read_region(&*source, header.metadata, limits.max_metadata_bytes)?;
-        let metadata = Metadata::parse(&metadata_bytes, limits)?;
+        let (metadata, metadata_bytes_read) = {
+            let bytes = read_region(&*source, header.metadata, limits.max_metadata_bytes)?;
+            let length = bytes.len() as u64;
+            (Metadata::parse(&bytes, limits)?, length)
+        };
 
-        let tensor_bytes = read_region(
-            &*source,
-            header.tensor_directory,
-            limits.max_total_directory_bytes,
-        )?;
-        let block_bytes = read_region(
-            &*source,
-            header.block_directory,
-            limits.max_total_directory_bytes,
-        )?;
-        let integrity_bytes = read_region(
-            &*source,
-            header.integrity_directory,
-            limits.max_total_directory_bytes,
-        )?;
-
-        let tensors = parse_table::<TensorDescriptor>(
-            &tensor_bytes,
-            header.tensor_count as usize,
-            TensorDescriptor::ENTRY_SIZE,
-            TensorDescriptor::parse,
-        )?;
-        let blocks = parse_table::<BlockDescriptor>(
-            &block_bytes,
-            header.block_count as usize,
-            BlockDescriptor::ENTRY_SIZE,
-            BlockDescriptor::parse,
-        )?;
-        let integrity = parse_table::<IntegrityRecord>(
-            &integrity_bytes,
-            header.integrity_count as usize,
-            IntegrityRecord::ENTRY_SIZE,
-            IntegrityRecord::parse,
-        )?;
+        // Parse one directory at a time and release its raw byte buffer before
+        // reading the next one. Keeping all raw directories alive alongside all
+        // parsed descriptors needlessly multiplies peak memory for large files.
+        let (tensors, tensor_directory_bytes_read) = {
+            let bytes = read_region(
+                &*source,
+                header.tensor_directory,
+                limits.max_total_directory_bytes,
+            )?;
+            let length = bytes.len() as u64;
+            (
+                parse_table::<TensorDescriptor>(
+                    &bytes,
+                    header.tensor_count as usize,
+                    TensorDescriptor::ENTRY_SIZE,
+                    TensorDescriptor::parse,
+                )?,
+                length,
+            )
+        };
+        let (blocks, block_directory_bytes_read) = {
+            let bytes = read_region(
+                &*source,
+                header.block_directory,
+                limits.max_total_directory_bytes,
+            )?;
+            let length = bytes.len() as u64;
+            (
+                parse_table::<BlockDescriptor>(
+                    &bytes,
+                    header.block_count as usize,
+                    BlockDescriptor::ENTRY_SIZE,
+                    BlockDescriptor::parse,
+                )?,
+                length,
+            )
+        };
+        let (integrity, integrity_directory_bytes_read) = {
+            let bytes = read_region(
+                &*source,
+                header.integrity_directory,
+                limits.max_total_directory_bytes,
+            )?;
+            let length = bytes.len() as u64;
+            (
+                parse_table::<IntegrityRecord>(
+                    &bytes,
+                    header.integrity_count as usize,
+                    IntegrityRecord::ENTRY_SIZE,
+                    IntegrityRecord::parse,
+                )?,
+                length,
+            )
+        };
 
         let tensor_lookup =
             validate_directories(&header, &metadata, &tensors, &blocks, &integrity, limits)?;
@@ -112,9 +135,9 @@ impl ModelReader {
             .store(HEADER_SIZE as u64, Ordering::Relaxed);
         stats
             .metadata_bytes_read
-            .store(metadata_bytes.len() as u64, Ordering::Relaxed);
+            .store(metadata_bytes_read, Ordering::Relaxed);
         stats.directory_bytes_read.store(
-            (tensor_bytes.len() + block_bytes.len() + integrity_bytes.len()) as u64,
+            tensor_directory_bytes_read + block_directory_bytes_read + integrity_directory_bytes_read,
             Ordering::Relaxed,
         );
 
