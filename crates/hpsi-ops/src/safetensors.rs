@@ -37,6 +37,15 @@ impl std::fmt::Display for SafeTensorError {
 }
 impl std::error::Error for SafeTensorError {}
 
+fn clone_header_text(value: &str) -> Result<String, SafeTensorError> {
+    let mut cloned = String::new();
+    cloned
+        .try_reserve_exact(value.len())
+        .map_err(|_| SafeTensorError::Allocation)?;
+    cloned.push_str(value);
+    Ok(cloned)
+}
+
 impl SafeTensorFile {
     pub fn open(
         source: Arc<dyn RandomAccessSource>,
@@ -79,11 +88,12 @@ impl SafeTensorFile {
                 continue;
             }
             let entry = value.as_object().ok_or(SafeTensorError::InvalidTensor)?;
-            let dtype = entry
-                .get("dtype")
-                .and_then(Value::as_str)
-                .ok_or(SafeTensorError::InvalidTensor)?
-                .to_owned();
+            let dtype = clone_header_text(
+                entry
+                    .get("dtype")
+                    .and_then(Value::as_str)
+                    .ok_or(SafeTensorError::InvalidTensor)?,
+            )?;
             let shape_values = entry
                 .get("shape")
                 .and_then(Value::as_array)
@@ -128,7 +138,7 @@ impl SafeTensorFile {
                 return Err(SafeTensorError::InvalidTensor);
             }
             tensors.push(SafeTensorInfo {
-                name: name.to_owned(),
+                name: clone_header_text(name)?,
                 dtype,
                 shape,
                 data_start: start,
