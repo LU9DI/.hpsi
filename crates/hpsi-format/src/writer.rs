@@ -1024,6 +1024,65 @@ mod streaming_writer_tests {
         std::fs::remove_dir(directory).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn temporary_file_creation_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let (directory, _) = test_output_path("temporary-symlink");
+        let target = directory.join("target");
+        let candidate = directory.join("candidate.tmp");
+        std::fs::write(&target, b"preserve target").unwrap();
+        symlink(&target, &candidate).unwrap();
+
+        let result = open_temporary_file(&candidate);
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"preserve target");
+        assert!(std::fs::symlink_metadata(&candidate)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        std::fs::remove_file(&candidate).unwrap();
+        std::fs::remove_file(&target).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_streaming_does_not_replace_symlink_destination_or_target() {
+        use std::os::unix::fs::symlink;
+
+        let (directory, destination) = test_output_path("symlink-destination");
+        let target = directory.join("target");
+        std::fs::write(&target, b"preserve target").unwrap();
+        symlink(&target, &destination).unwrap();
+
+        let result = ModelWriter::write_path_streaming(
+            &destination,
+            &one_byte_streaming_tensor(),
+            |_, _, writer| {
+                writer.write_all(&[42]).map_err(ioerr)?;
+                Ok(1)
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"preserve target");
+        assert!(std::fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 2);
+
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_file(&target).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
     #[test]
     fn path_streaming_does_not_overwrite_existing_destination() {
         let (directory, destination) = test_output_path("existing-destination");
