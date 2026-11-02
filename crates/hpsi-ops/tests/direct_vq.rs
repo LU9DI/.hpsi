@@ -93,6 +93,55 @@ fn heldout_relative_l2(weights: &[f32], rows: usize, cols: usize, matrix: &VqMat
     (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
 }
 
+fn activation_weighted_relative_l2(weights: &[f32], matrix: &VqMatrix, importance: &[f32]) -> f64 {
+    let mut error = 0.0_f64;
+    let mut reference = 0.0_f64;
+    for (group, source) in weights.chunks_exact(8).enumerate() {
+        for dimension in 0..8 {
+            let mut reconstructed = 0.0_f32;
+            for stage in 0..matrix.codebook_count() {
+                let selector = group * matrix.codebook_count() + stage;
+                let packed = matrix.packed_indices()[selector / 2];
+                let code = usize::from(if selector % 2 == 0 { packed & 0x0f } else { packed >> 4 });
+                reconstructed += matrix.codebook()[stage * 16 * 8 + code * 8 + dimension];
+            }
+            let weight = f64::from(importance[group % (importance.len() / 8) * 8 + dimension]);
+            let difference = f64::from(source[dimension] - reconstructed);
+            error += weight * difference * difference;
+            reference += weight * f64::from(source[dimension]) * f64::from(source[dimension]);
+        }
+    }
+    (error / reference.max(f64::MIN_POSITIVE)).sqrt()
+}
+
+#[test]
+fn activation_aware_vq_optimizes_high_importance_dimensions() {
+    let rows = 128;
+    let cols = 64;
+    let weights = synthetic_weights(rows, cols);
+    let mut importance = vec![1.0_f32; cols];
+    for column in (0..cols).step_by(8) {
+        importance[column] = 64.0;
+    }
+    let config = VqConfig { codebook_count: 4, ..VqConfig::default() };
+    let ordinary = VqMatrix::encode(&weights, rows, cols, config).unwrap();
+    let aware = VqMatrix::encode_activation_aware(&weights, rows, cols, config, &importance).unwrap();
+    let ordinary_error = activation_weighted_relative_l2(&weights, &ordinary, &importance);
+    let aware_error = activation_weighted_relative_l2(&weights, &aware, &importance);
+    assert!(aware_error < ordinary_error, "activation-aware error {aware_error} did not improve over {ordinary_error}");
+    assert_eq!(aware.stored_bytes(), ordinary.stored_bytes());
+}
+
+#[test]
+fn activation_aware_vq_rejects_invalid_importance() {
+    let weights = synthetic_weights(8, 16);
+    let config = VqConfig::default();
+    assert!(VqMatrix::encode_activation_aware(&weights, 8, 16, config, &[1.0; 8]).is_err());
+    let mut invalid = vec![1.0_f32; 16];
+    invalid[3] = f32::NAN;
+    assert!(VqMatrix::encode_activation_aware(&weights, 8, 16, config, &invalid).is_err());
+}
+
 #[test]
 fn direct_matvec_from_hpsi_payloads_matches_in_memory_additive_view() {
     let rows = 64;
