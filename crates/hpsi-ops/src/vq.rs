@@ -580,6 +580,8 @@ fn fit_codebook(
         centroids.push(samples[0]);
     }
 
+    // Deterministic farthest-first initialization spreads the initial centers
+    // across the residual distribution instead of depending on input order.
     while centroids.len() < CODEBOOK_SIZE {
         let mut best_index = 0;
         let mut best_distance = f32::NEG_INFINITY;
@@ -596,16 +598,20 @@ fn fit_codebook(
         centroids.push(samples[best_index]);
     }
 
+    let mut nearest_distances = vec![0.0_f32; samples.len()];
     for _ in 0..iterations {
         let mut sums = [[0.0_f32; GROUP_SIZE]; CODEBOOK_SIZE];
         let mut counts = [0_usize; CODEBOOK_SIZE];
-        for sample in samples {
+        for (sample_index, sample) in samples.iter().enumerate() {
             let cluster = nearest_centroid(sample, &centroids);
+            let distance = squared_distance(sample, &centroids[cluster]);
+            nearest_distances[sample_index] = distance;
             counts[cluster] += 1;
             for (sum, value) in sums[cluster].iter_mut().zip(sample) {
                 *sum += *value;
             }
         }
+
         for cluster in 0..CODEBOOK_SIZE {
             if counts[cluster] == 0 || (reserve_zero_centroid && cluster == 0) {
                 continue;
@@ -616,6 +622,26 @@ fn fit_codebook(
             }
             if centroids[cluster].iter().any(|value| !value.is_finite()) {
                 return Err(VqError("codebook fitting overflowed"));
+            }
+        }
+
+        // Empty clusters waste selector values. Re-seed them from distinct
+        // worst-represented samples so subsequent Lloyd iterations can use
+        // those codewords instead of retaining duplicate/obsolete centers.
+        let mut reseeded = vec![false; samples.len()];
+        for cluster in 0..CODEBOOK_SIZE {
+            if counts[cluster] != 0 || (reserve_zero_centroid && cluster == 0) {
+                continue;
+            }
+            let candidate = nearest_distances
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !reseeded[*index])
+                .max_by(|left, right| left.1.total_cmp(right.1))
+                .map(|(index, _)| index);
+            if let Some(sample_index) = candidate {
+                centroids[cluster] = samples[sample_index];
+                reseeded[sample_index] = true;
             }
         }
     }
