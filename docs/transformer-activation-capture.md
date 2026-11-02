@@ -71,7 +71,7 @@ weight importer and layer-by-layer end-to-end evaluation are still separate work
 
 The Rust `hpsi-ops` crate now includes a bounded-header, random-access Safetensors reader.
 It parses tensor names, dtypes, shapes and byte ranges without loading the weight payloads.
-For rank-2 F32 tensors, `SafeTensorFile::read_f32_rows` reads only a requested row window.
+For rank-2 F32, F16 and BF16 tensors, `SafeTensorFile::read_f32_rows` reads only a requested row window and converts the selected values to F32. Other dtypes are identified in metadata but are not silently converted.
 The CLI exposes metadata inspection:
 
 ```bash
