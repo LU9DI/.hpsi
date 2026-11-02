@@ -511,11 +511,12 @@ mod tests {
         assert_eq!(weight["calibration"]["dataset_sha256"], "a".repeat(64));
         assert_eq!(weight["calibration"]["sample_count"], 32);
         assert_eq!(weight["calibration"]["features"], 16);
-        assert_eq!(
-            weight["calibration"]["statistic"],
-            "diagonal_second_moment"
+        assert_eq!(weight["calibration"]["statistic"], "diagonal_second_moment");
+        assert!(
+            weight["calibration"]
+                .get("activation_second_moment")
+                .is_none()
         );
-        assert!(weight["calibration"].get("activation_second_moment").is_none());
     }
 
     #[test]
