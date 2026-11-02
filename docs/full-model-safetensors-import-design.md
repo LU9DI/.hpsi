@@ -60,4 +60,4 @@ The provenance-aware plan and writers persist a `calibration` object on each cal
 
 The implementation includes tests for deterministic planning, complete source coverage, name collisions, mixed VQ/raw tensors, calibration validation, multi-tensor output, raw payload preservation across all 22 currently supported Safetensors dtypes, HPSI reopening, and integrity verification. CI checks formatting, Clippy, and tests on Ubuntu, Windows, and macOS.
 
-These tests establish implementation behavior for their fixtures; they do not establish compatibility with every model architecture or production-scale memory/performance claims. Representative-model testing, model-specific tensor eligibility policies, broader native dtype support, and persisted calibration provenance remain future work.
+These tests establish implementation behavior for their fixtures; they do not establish compatibility with every model architecture or production-scale memory/performance claims. Representative-model testing, model-specific tensor eligibility policies, and broader native dtype support remain future work.
