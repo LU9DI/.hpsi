@@ -582,7 +582,7 @@ The Rust workspace on `feat/hpsi-core-container` now contains a first end-to-end
 
 **Validation status:** the reader, RAW writer, verified path-publishing API, and CLI changes have passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy with warnings denied, and workspace tests.
 
-**Still outstanding:** more adversarial malformed/truncated/overlap cases, fuzzing, CLI integration tests, and all compression/direct-compute kernels. The current writer is intentionally RAW-only and does not make a compression-ratio claim.
+**Still outstanding:** fuzz targets and sustained fuzzing, additional resource-limit/allocation edge cases, and all compression/direct-compute kernels. The current writer is intentionally RAW-only and does not make a compression-ratio claim.
 
 
 ### Feature 001 — reader implementation update

@@ -57,7 +57,7 @@
 
 - [x] T038 Define writer input model for metadata, tensor descriptors, blocks, and opaque payloads.
 - [x] T039 Validate all writer inputs before creating/replacing destination.
-- [ ] T040 Calculate canonical region layout with checked arithmetic and zero padding.
+- [x] T040 Calculate canonical region layout with checked arithmetic and zero padding.
 - [x] T041 Serialize metadata, tensor directory, block directory, payload, and integrity records.
 - [x] T042 Implement securely created temporary sibling output file.
 - [x] T043 Flush/synchronize where supported, reopen with reference reader, and verify output.
@@ -72,14 +72,14 @@
 - [x] T049 Ensure inspect output labels stored bytes vs logical bytes and reports no compression claim.
 - [x] T050 Implement `hpsi verify <file>` with per-region verification summary.
 - [x] T051 Add exit codes and actionable errors for invalid files, unsupported versions/codecs, and I/O failures.
-- [ ] T052 Add CLI integration tests, including proof that inspect does not read payload.
+- [x] T052 Add CLI integration tests, including proof that inspect does not read payload.
 
 ## Phase 6 — Adversarial validation and fuzzing
 
-- [ ] T053 Add truncation tests at every structural boundary.
+- [x] T053 Add truncation tests at every structural boundary.
 - [ ] T054 Add integer-overflow, oversized-count, oversized-dimension, and allocation-limit tests.
-- [ ] T055 Add overlapping-region and overlapping-payload tests.
-- [ ] T056 Add corrupted metadata/payload CRC32C tests.
+- [x] T055 Add overlapping-region and overlapping-payload tests.
+- [x] T056 Add corrupted metadata/payload CRC32C tests.
 - [ ] T057 Add fuzz target for header parser.
 - [ ] T058 Add fuzz target for complete ModelReader::open.
 - [ ] T059 Run fuzzing for a documented minimum duration and preserve crash regressions as fixtures.
