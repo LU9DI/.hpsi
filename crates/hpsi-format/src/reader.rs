@@ -227,48 +227,17 @@ impl ModelReader {
     /// container never triggers an unbounded scan. Payload and trailing file bytes
     /// are not read by this method.
     pub fn verify_padding(&self, max_bytes: u64) -> Result<u64> {
-        let mut regions = [
-            self.header.metadata,
-            self.header.tensor_directory,
-            self.header.block_directory,
-            self.header.payload,
-            self.header.integrity_directory,
-        ];
-        regions.sort_unstable_by_key(|region| region.offset);
-
-        let mut gaps = Vec::new();
-        let mut cursor = HEADER_SIZE as u64;
-        let mut total = 0_u64;
-        for region in regions.iter().filter(|region| !region.is_empty()) {
-            if region.offset > cursor {
-                let length = region.offset - cursor;
-                total = total
-                    .checked_add(length)
-                    .ok_or(FormatError::ArithmeticOverflow("total padding length"))?;
-                gaps.push((cursor, length));
-            }
-            cursor = region.end()?;
-        }
-        if total > max_bytes {
-            return Err(FormatError::LimitExceeded("padding verification budget"));
-        }
-
-        let mut buffer = [0_u8; 64 * 1024];
-        for (mut offset, mut remaining) in gaps {
-            while remaining > 0 {
-                let chunk = usize::try_from(remaining.min(buffer.len() as u64))
-                    .map_err(|_| FormatError::LimitExceeded("padding verification chunk"))?;
-                self.source.read_exact_at(offset, &mut buffer[..chunk])?;
-                if buffer[..chunk].iter().any(|byte| *byte != 0) {
-                    return Err(FormatError::InvalidRegion("non-zero padding bytes"));
-                }
-                offset = offset
-                    .checked_add(chunk as u64)
-                    .ok_or(FormatError::ArithmeticOverflow("padding offset"))?;
-                remaining -= chunk as u64;
-            }
-        }
-        Ok(total)
+        verify_padding_regions(
+            &*self.source,
+            &[
+                self.header.metadata,
+                self.header.tensor_directory,
+                self.header.block_directory,
+                self.header.payload,
+                self.header.integrity_directory,
+            ],
+            max_bytes,
+        )
     }
 
     pub fn stats(&self) -> ReaderStats {
@@ -288,6 +257,52 @@ impl ModelReader {
         self.blocks.len()
     }
 }
+
+
+/// Verify zero-filled gaps among validated top-level regions with a caller budget.
+fn verify_padding_regions(
+    source: &dyn RandomAccessSource,
+    regions: &[crate::Region],
+    max_bytes: u64,
+) -> Result<u64> {
+    let mut active: Vec<_> = regions.iter().copied().filter(|region| !region.is_empty()).collect();
+    active.sort_unstable_by_key(|region| region.offset);
+
+    let mut gaps = Vec::new();
+    let mut cursor = HEADER_SIZE as u64;
+    let mut total = 0_u64;
+    for region in active {
+        if region.offset > cursor {
+            let length = region.offset - cursor;
+            total = total
+                .checked_add(length)
+                .ok_or(FormatError::ArithmeticOverflow("total padding length"))?;
+            gaps.push((cursor, length));
+        }
+        cursor = region.end()?;
+    }
+    if total > max_bytes {
+        return Err(FormatError::LimitExceeded("padding verification budget"));
+    }
+
+    let mut buffer = [0_u8; 64 * 1024];
+    for (mut offset, mut remaining) in gaps {
+        while remaining > 0 {
+            let chunk = usize::try_from(remaining.min(buffer.len() as u64))
+                .map_err(|_| FormatError::LimitExceeded("padding verification chunk"))?;
+            source.read_exact_at(offset, &mut buffer[..chunk])?;
+            if buffer[..chunk].iter().any(|byte| *byte != 0) {
+                return Err(FormatError::InvalidRegion("non-zero padding bytes"));
+            }
+            offset = offset
+                .checked_add(chunk as u64)
+                .ok_or(FormatError::ArithmeticOverflow("padding offset"))?;
+            remaining -= chunk as u64;
+        }
+    }
+    Ok(total)
+}
+
 
 fn read_region(
     source: &dyn RandomAccessSource,
