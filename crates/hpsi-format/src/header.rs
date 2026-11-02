@@ -1,4 +1,4 @@
-use crate::{FormatError, ReaderLimits, Result, Region, validate_regions};
+use crate::{FormatError, ReaderLimits, Region, Result, validate_regions};
 
 pub const HEADER_SIZE: usize = 128;
 const TENSOR_ENTRY_SIZE: u32 = 128;
