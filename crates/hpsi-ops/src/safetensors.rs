@@ -280,32 +280,47 @@ impl SafeTensorFile {
             .checked_add(tensor.data_start)
             .and_then(|offset| offset.checked_add(relative_offset))
             .ok_or(SafeTensorError::OutOfBounds)?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(allocation)
+        // Decode directly into the final f32 allocation. The previous
+        // implementation allocated a second full-sized byte Vec and then a
+        // third iterator-collection allocation for the converted values.
+        // A fixed-size transfer buffer keeps temporary byte memory bounded
+        // even when a caller requests a very large row.
+        let element_count_usize =
+            usize::try_from(element_count).map_err(|_| SafeTensorError::Allocation)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(element_count_usize)
             .map_err(|_| SafeTensorError::Allocation)?;
-        bytes.resize(allocation, 0);
-        self.source
-            .read_exact_at(absolute_offset, &mut bytes)
-            .map_err(|_| SafeTensorError::Io)?;
-
-        let values: Vec<f32> = match tensor.dtype.as_str() {
-            "F32" => bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect(),
-            "BF16" => bytes
-                .chunks_exact(2)
-                .map(|chunk| {
-                    f32::from_bits(u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16)
-                })
-                .collect(),
-            "F16" => bytes
-                .chunks_exact(2)
-                .map(|chunk| f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])))
-                .collect(),
-            _ => return Err(SafeTensorError::UnsupportedDtype),
-        };
+        values.resize(element_count_usize, 0.0_f32);
+        let element_width = width as usize;
+        let elements_per_chunk = (64 * 1024) / element_width;
+        let mut bytes = [0_u8; 64 * 1024];
+        let mut completed = 0usize;
+        while completed < element_count_usize {
+            let count = (element_count_usize - completed).min(elements_per_chunk);
+            let byte_len = count * element_width;
+            let byte_offset = (completed as u64)
+                .checked_mul(width)
+                .and_then(|offset| absolute_offset.checked_add(offset))
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            self.source
+                .read_exact_at(byte_offset, &mut bytes[..byte_len])
+                .map_err(|_| SafeTensorError::Io)?;
+            for (slot, chunk) in values[completed..completed + count]
+                .iter_mut()
+                .zip(bytes[..byte_len].chunks_exact(element_width))
+            {
+                *slot = match tensor.dtype.as_str() {
+                    "F32" => f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+                    "BF16" => f32::from_bits(
+                        u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16,
+                    ),
+                    "F16" => f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])),
+                    _ => return Err(SafeTensorError::UnsupportedDtype),
+                };
+            }
+            completed += count;
+        }
         if values.iter().any(|value| !value.is_finite()) {
             return Err(SafeTensorError::InvalidTensor);
         }
