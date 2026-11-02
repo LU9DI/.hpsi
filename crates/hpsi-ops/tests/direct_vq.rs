@@ -85,22 +85,32 @@ fn additive_codebook_reduces_weight_domain_error() {
     let cols = 64;
     let weights = synthetic_weights(rows, cols);
     let single = VqMatrix::encode(&weights, rows, cols, VqConfig::default()).unwrap();
-    let additive = VqMatrix::encode(
-        &weights,
-        rows,
-        cols,
-        VqConfig {
-            codebook_count: 2,
-            ..VqConfig::default()
-        },
-    )
-    .unwrap();
-
-    assert!(additive.codebook_count() == 2);
-    assert!(additive.stored_bytes() > single.stored_bytes());
     let single_error = heldout_relative_l2(&weights, rows, cols, &single);
-    let additive_error = heldout_relative_l2(&weights, rows, cols, &additive);
-    assert!(additive_error <= single_error);
+    let mut previous_error = single_error;
+    let mut previous_size = single.stored_bytes();
+
+    for codebook_count in 2..=4 {
+        let additive = VqMatrix::encode(
+            &weights,
+            rows,
+            cols,
+            VqConfig {
+                codebook_count,
+                ..VqConfig::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(additive.codebook_count(), codebook_count);
+        assert!(additive.stored_bytes() > previous_size);
+        let additive_error = heldout_relative_l2(&weights, rows, cols, &additive);
+        assert!(
+            additive_error <= previous_error,
+            "{codebook_count} codebooks increased held-out error: {additive_error} > {previous_error}"
+        );
+        previous_error = additive_error;
+        previous_size = additive.stored_bytes();
+    }
 }
 
 #[test]
@@ -132,51 +142,54 @@ fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
     let rows = 64;
     let cols = 64;
     let weights = synthetic_weights(rows, cols);
-    let matrix = VqMatrix::encode(
-        &weights,
-        rows,
-        cols,
-        VqConfig {
-            codebook_count: 2,
-            ..VqConfig::default()
-        },
-    )
-    .unwrap();
     let input: Vec<f32> = (0..cols).map(|index| (index as f32 * 0.09).cos()).collect();
-    let mut expected = vec![0.0; rows];
-    matrix.view().matvec(&input, &mut expected).unwrap();
-
-    let tensors = matrix.to_hpsi_tensors(20, 21, 8).unwrap();
-    let mut artifact = Cursor::new(Vec::new());
-    ModelWriter::write(&mut artifact, &tensors).unwrap();
-    let reader = ModelReader::open(
-        Arc::new(MemorySource::new(artifact.into_inner())),
-        &ReaderLimits::default(),
-    )
-    .unwrap();
-
     let first_row = 16;
-    let mut selected = vec![0.0; 8];
-    matvec_hpsi_rows(
-        &reader,
-        HpsiVqLayout {
-            codebook_tensor_id: 20,
-            indices_tensor_id: 21,
+
+    for codebook_count in 1..=4 {
+        let matrix = VqMatrix::encode(
+            &weights,
             rows,
             cols,
-            codebook_count: 2,
-        },
-        &input,
-        first_row,
-        &mut selected,
-    )
-    .unwrap();
+            VqConfig {
+                codebook_count,
+                ..VqConfig::default()
+            },
+        )
+        .unwrap();
+        let mut expected = vec![0.0; rows];
+        matrix.view().matvec(&input, &mut expected).unwrap();
 
-    assert_eq!(selected, expected[first_row..first_row + selected.len()]);
-    let codebook_bytes = 2 * 16 * 8 * 4;
-    let one_index_block_bytes = (cols / 8) * 8;
-    assert_eq!(
-        reader.stats().payload_bytes_read,
-        (codebook_bytes + one_index_block_bytes) as u64
-    );
+        let tensors = matrix.to_hpsi_tensors(20, 21, 8).unwrap();
+        let mut artifact = Cursor::new(Vec::new());
+        ModelWriter::write(&mut artifact, &tensors).unwrap();
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(artifact.into_inner())),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+
+        let mut selected = vec![0.0; 8];
+        matvec_hpsi_rows(
+            &reader,
+            HpsiVqLayout {
+                codebook_tensor_id: 20,
+                indices_tensor_id: 21,
+                rows,
+                cols,
+                codebook_count,
+            },
+            &input,
+            first_row,
+            &mut selected,
+        )
+        .unwrap();
+
+        assert_eq!(selected, expected[first_row..first_row + selected.len()]);
+        let codebook_bytes = codebook_count * 16 * 8 * 4;
+        let one_index_block_bytes = (cols / 8) * codebook_count / 2 * 8;
+        assert_eq!(
+            reader.stats().payload_bytes_read,
+            (codebook_bytes + one_index_block_bytes) as u64
+        );
+    }
 }
