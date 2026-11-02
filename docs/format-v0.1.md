@@ -237,6 +237,7 @@ The initial API is language-specific in implementation, but its semantics are fi
 - `block(tensor_id, block_id) -> BlockDescriptor`: resolve block without scanning payload.
 - `read_block(tensor_id, block_id) -> BlockData`: read exactly the declared payload range and return descriptor plus bytes.
 - `verify_all() -> VerificationReport`: stream through every declared integrity record using bounded buffers; the result must not be interpreted as full artifact coverage when records are optional or absent.
+- `verify_padding(max_bytes) -> Result<u64>`: explicitly verify zero-filled gaps between the fixed header and declared top-level regions, refusing to scan when the total gap length exceeds the caller-supplied byte budget. Payload regions and trailing bytes after the last declared region are not read.
 - `stats() -> ReaderStats`: expose metadata/directory/payload bytes read and read-operation counts.
 
 The reader must support an injectable random-access source abstraction so tests can assert exactly which ranges were read.
