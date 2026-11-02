@@ -56,7 +56,9 @@ impl ModelImportPlan {
                     .iter()
                     .any(|value| !value.is_finite() || *value < 0.0)
             {
-                return Err(VqError("activation calibration contains invalid dimensions or moments"));
+                return Err(VqError(
+                    "activation calibration contains invalid dimensions or moments",
+                ));
             }
             if calibration_by_name
                 .insert(calibration.layer_name.as_str(), calibration)
@@ -77,7 +79,9 @@ impl ModelImportPlan {
 
         for tensor in names {
             if tensor.shape.is_empty() || tensor.shape.len() > 8 || tensor.shape.contains(&0) {
-                return Err(VqError("source tensor rank or dimensions are incompatible with HPSI"));
+                return Err(VqError(
+                    "source tensor rank or dimensions are incompatible with HPSI",
+                ));
             }
             let quantizable = tensor.shape.len() == 2
                 && tensor.shape.iter().all(|dimension| *dimension > 0)
