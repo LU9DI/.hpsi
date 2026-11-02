@@ -229,49 +229,78 @@ impl VqMatrix {
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
+        let mut packed_indices = Vec::new();
+        let codebook = Self::encode_from_reader_activation_aware_to(
+            rows, cols, config, activation_second_moment,
+            |offset, count| read_elements(offset, count),
+            |_, row| {
+                packed_indices.extend_from_slice(row);
+                Ok(())
+            },
+        )?;
+        Ok(Self {
+            rows, cols, codebook_count: config.codebook_count,
+            codebook, packed_indices,
+        })
+    }
+
+    /// Activation-aware variant of `encode_from_reader_to`. It preserves
+    /// the in-memory encoder's group-position importance scaling while
+    /// emitting each packed row to the consumer immediately.
+    pub fn encode_from_reader_activation_aware_to<F, E>(
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        activation_second_moment: &[f32],
+        mut read_elements: F,
+        mut emit_row: E,
+    ) -> Result<Vec<f32>, VqError>
+    where
+        F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+        E: FnMut(u64, &[u8]) -> Result<(), VqError>,
+    {
+        if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
+            return Err(VqError("matrix shape must be non-zero and group-aligned"));
+        }
         if activation_second_moment.len() != cols
-            || activation_second_moment
-                .iter()
-                .any(|value| !value.is_finite() || *value < 0.0)
+            || activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0)
         {
-            return Err(VqError(
-                "activation importance must contain one finite non-negative value per column",
-            ));
+            return Err(VqError("activation importance must contain one finite non-negative value per column"));
         }
         let mut dimension_scale = [1.0_f32; GROUP_SIZE];
         for (dimension, scale) in dimension_scale.iter_mut().enumerate() {
-            let mean = activation_second_moment
-                .iter()
-                .skip(dimension)
-                .step_by(GROUP_SIZE)
-                .map(|value| f64::from(*value))
-                .sum::<f64>()
+            let mean = activation_second_moment.iter().skip(dimension)
+                .step_by(GROUP_SIZE).map(|value| f64::from(*value)).sum::<f64>()
                 / (cols / GROUP_SIZE) as f64;
             *scale = mean.max(1.0e-30).sqrt() as f32;
             if !scale.is_finite() || *scale <= 0.0 {
                 return Err(VqError("activation importance scale is invalid"));
             }
         }
-
-        let mut matrix = Self::encode_from_reader(rows, cols, config, |first, count| {
-            let mut values = read_elements(first, count)?;
-            let start = usize::try_from(first)
-                .map_err(|_| VqError("reader offset exceeds address space"))?;
-            for (index, value) in values.iter_mut().enumerate() {
-                let column = (start + index) % cols;
-                *value *= dimension_scale[column % GROUP_SIZE];
-                if !value.is_finite() {
-                    return Err(VqError("activation-scaled source window is non-finite"));
+        let mut codebook = Self::encode_from_reader_to(
+            rows, cols, config,
+            |first, count| {
+                let mut values = read_elements(first, count)?;
+                let start = usize::try_from(first)
+                    .map_err(|_| VqError("reader offset exceeds address space"))?;
+                for (index, value) in values.iter_mut().enumerate() {
+                    let column = start.checked_add(index)
+                        .ok_or(VqError("reader column offset overflow"))? % cols;
+                    *value *= dimension_scale[column % GROUP_SIZE];
+                    if !value.is_finite() {
+                        return Err(VqError("activation-scaled source window is non-finite"));
+                    }
                 }
-            }
-            Ok(values)
-        })?;
-        for centroid in matrix.codebook.chunks_exact_mut(GROUP_SIZE) {
+                Ok(values)
+            },
+            |row, bytes| emit_row(row, bytes),
+        )?;
+        for centroid in codebook.chunks_exact_mut(GROUP_SIZE) {
             for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
                 *value /= scale;
             }
         }
-        Ok(matrix)
+        Ok(codebook)
     }
 
     /// Encode using activation second moments as per-input-column importance.
