@@ -416,26 +416,26 @@ fn validate_directories(
         }
     }
 
-    let mut integrity_targets = HashMap::new();
-    integrity_targets
-        .try_reserve(integrity.len())
-        .map_err(|_| FormatError::LimitExceeded("integrity index allocation failed"))?;
-    let expected_integrity_count =
-        blocks
-            .len()
-            .checked_add(1)
-            .ok_or(FormatError::ArithmeticOverflow(
-                "expected integrity record count",
-            ))?;
-    if integrity.len() != expected_integrity_count {
+    validate_integrity_coverage(blocks, integrity)?;
+
+    validate_reference_cycles(tensors, blocks, &lookup)?;
+    Ok(lookup)
+}
+
+fn validate_integrity_coverage(
+    blocks: &[BlockDescriptor],
+    integrity: &[IntegrityRecord],
+) -> Result<()> {
+    let expected_count = blocks
+        .len()
+        .checked_add(1)
+        .ok_or(FormatError::ArithmeticOverflow("expected integrity record count"))?;
+    if integrity.len() != expected_count {
         return Err(FormatError::InvalidDirectory(
             "integrity directory must cover metadata and every block",
         ));
     }
     for (index, record) in integrity.iter().enumerate() {
-        if integrity_targets.insert(record.target, index).is_some() {
-            return Err(FormatError::InvalidDirectory("duplicate integrity target"));
-        }
         let expected_target = if index == 0 {
             IntegrityTarget::Metadata
         } else {
@@ -447,11 +447,6 @@ fn validate_directories(
             ));
         }
     }
-    if integrity_targets.get(&IntegrityTarget::Metadata) != Some(&0) {
-        return Err(FormatError::InvalidDirectory(
-            "metadata integrity record is missing",
-        ));
-    }
     for (block_index, block) in blocks.iter().enumerate() {
         let expected_index = u32::try_from(block_index + 1)
             .map_err(|_| FormatError::LimitExceeded("integrity record index"))?;
@@ -460,21 +455,18 @@ fn validate_directories(
                 "block checksum index is missing or inconsistent",
             ));
         }
-        let record =
-            integrity
-                .get(expected_index as usize)
-                .ok_or(FormatError::InvalidReference(
-                    "block checksum index is out of range",
-                ))?;
+        let record = integrity
+            .get(expected_index as usize)
+            .ok_or(FormatError::InvalidReference(
+                "block checksum index is out of range",
+            ))?;
         if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
             return Err(FormatError::InvalidReference(
                 "block checksum target mismatch",
             ));
         }
     }
-
-    validate_reference_cycles(tensors, blocks, &lookup)?;
-    Ok(lookup)
+    Ok(())
 }
 
 fn validate_reference_cycles(
@@ -597,4 +589,55 @@ mod tests {
         crc.update(b"123456789");
         assert_eq!(crc.finish(), 0xe306_9283);
     }
+    #[test]
+    fn integrity_coverage_rejects_missing_block_record() {
+        use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
+        let block = BlockDescriptor {
+            tensor_id: 7,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 4,
+            payload_offset: 256,
+            payload_length: 4,
+            auxiliary_ref: None,
+            checksum_index: Some(1),
+        };
+        let records = [IntegrityRecord {
+            target: IntegrityTarget::Metadata,
+            crc32c: 0,
+        }];
+        assert!(matches!(
+            super::validate_integrity_coverage(&[block], &records),
+            Err(crate::FormatError::InvalidDirectory(_))
+        ));
+    }
+
+    #[test]
+    fn integrity_coverage_rejects_missing_block_checksum_index() {
+        use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
+        let block = BlockDescriptor {
+            tensor_id: 7,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 4,
+            payload_offset: 256,
+            payload_length: 4,
+            auxiliary_ref: None,
+            checksum_index: None,
+        };
+        let records = [
+            IntegrityRecord { target: IntegrityTarget::Metadata, crc32c: 0 },
+            IntegrityRecord { target: IntegrityTarget::BlockPayload(0), crc32c: 0 },
+        ];
+        assert!(matches!(
+            super::validate_integrity_coverage(&[block], &records),
+            Err(crate::FormatError::InvalidReference(_))
+        ));
+    }
+
+
 }
