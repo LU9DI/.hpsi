@@ -1312,7 +1312,7 @@ fn beam_search_additive(
     codebooks: &[Vec<[f32; GROUP_SIZE]>],
     beam_width: usize,
 ) -> Result<([f32; GROUP_SIZE], [u8; 4]), VqError> {
-    if !(1..=4).contains(&codebooks.len()) && !codebooks.is_empty() {
+    if codebooks.len() > 4 {
         return Err(VqError(
             "additive beam search supports at most four codebooks",
         ));
