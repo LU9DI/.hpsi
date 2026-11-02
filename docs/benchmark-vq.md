@@ -37,7 +37,7 @@ Run: [GitHub Actions #51](https://github.com/LU9DI/.hpsi/actions/runs/4136973595
 
 **Interpretation:** the 49.35× figure includes the HPSI header, metadata, directories, codebook, and packed selectors. Despite that storage result, the relative L2 error is high and the direct CPU kernel is approximately 31% slower at p50 than the dense F32 reference in this run. The benchmark ran on a GitHub-hosted Ubuntu runner; its exact CPU model and power state were not recorded, so the latency numbers are illustrative rather than portable performance claims.
 
-The result argues against treating 4-bit selectors per 8-weight group as a final representation. The next experiment should compare additive/residual codebooks (two 4-bit selectors per group), then measure quality and latency again before considering GPU work.
+The result argues against treating 4-bit selectors per 8-weight group as a final representation. The next experiment compared additive/residual codebooks and expanded the sweep to one through four codebooks (4, 8, 12, and 16 selector bits per 8-weight group). The updated benchmark prints artifact size, held-out error, encode time, and p50/p95 latency for each rate. New measurements are pending CI; no quality or speedup conclusion is made for three- and four-codebook modes yet.
 
 
 ## Additive residual-codebook comparison — CI run #53
@@ -61,3 +61,8 @@ Both modes used the same deterministic 256 × 256 synthetic matrix and the same 
 Dense F32 reference in the same run: p50 **0.043665 ms**, p95 **0.049184 ms**. The additive mode reduces relative L2 error by approximately **22.7%** versus single-codebook mode, at the cost of roughly halving the compression ratio and more than doubling direct-matvec p50 latency versus dense F32.
 
 The additive codebook reserves a zero residual centroid, so its weight-domain per-group reconstruction error cannot exceed the single-codebook residual error. The held-out matrix-vector error also improved in this sample, but remains large (0.589 relative L2). The experiment therefore supports further research into residual/additive representations, not a claim of acceptable neural-network quality.
+
+
+## Multi-stage residual-codebook sweep
+
+The encoder now supports one through four additive codebooks. Each residual stage is trained against the residual left by all preceding stages and reserves a zero centroid. Selectors are nibble-packed at four bits each; the row-streamed HPSI path reads only blocks intersecting the requested output rows. The deterministic benchmark now reports all four rates on the same matrix and held-out inputs. Until the updated CI run is recorded here, three- and four-stage quality/latency figures are intentionally left unreported.
