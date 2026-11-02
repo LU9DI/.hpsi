@@ -53,7 +53,9 @@ impl Header {
 
         let file_size = u64_at(bytes, 16);
         if file_size != actual_file_size {
-            return Err(FormatError::InvalidHeader("declared file size differs from actual size"));
+            return Err(FormatError::InvalidHeader(
+                "declared file size differs from actual size",
+            ));
         }
         if file_size > limits.max_file_size {
             return Err(FormatError::LimitExceeded("maximum file size"));
@@ -88,7 +90,9 @@ impl Header {
             offset: u64_at(bytes, 88),
             length: if integrity_count == 0 {
                 if integrity_entry_size != 0 {
-                    return Err(FormatError::InvalidHeader("empty integrity directory must have entry size zero"));
+                    return Err(FormatError::InvalidHeader(
+                        "empty integrity directory must have entry size zero",
+                    ));
                 }
                 0
             } else {
@@ -107,23 +111,34 @@ impl Header {
         }
 
         if u32_at(bytes, 52) != TENSOR_ENTRY_SIZE || u32_at(bytes, 68) != BLOCK_ENTRY_SIZE {
-            return Err(FormatError::InvalidHeader("unexpected directory entry size"));
+            return Err(FormatError::InvalidHeader(
+                "unexpected directory entry size",
+            ));
         }
         if integrity_count > 0 && integrity_entry_size != INTEGRITY_ENTRY_SIZE {
-            return Err(FormatError::InvalidHeader("unexpected integrity entry size"));
+            return Err(FormatError::InvalidHeader(
+                "unexpected integrity entry size",
+            ));
         }
         if bytes[120..128].iter().any(|byte| *byte != 0) {
-            return Err(FormatError::InvalidHeader("reserved header bytes must be zero"));
+            return Err(FormatError::InvalidHeader(
+                "reserved header bytes must be zero",
+            ));
         }
 
         if tensor_count == 0 || block_count == 0 {
-            return Err(FormatError::InvalidHeader("v0.1 model requires at least one tensor and block"));
+            return Err(FormatError::InvalidHeader(
+                "v0.1 model requires at least one tensor and block",
+            ));
         }
         if metadata.length == 0 || payload.length == 0 {
-            return Err(FormatError::InvalidHeader("metadata and payload regions must be non-empty"));
+            return Err(FormatError::InvalidHeader(
+                "metadata and payload regions must be non-empty",
+            ));
         }
 
-        let directory_bytes = tensor_directory.length
+        let directory_bytes = tensor_directory
+            .length
             .checked_add(block_directory.length)
             .and_then(|n| n.checked_add(integrity_directory.length))
             .ok_or(FormatError::ArithmeticOverflow("total directory bytes"))?;
@@ -132,7 +147,13 @@ impl Header {
         }
 
         validate_regions(
-            &[metadata, tensor_directory, block_directory, payload, integrity_directory],
+            &[
+                metadata,
+                tensor_directory,
+                block_directory,
+                payload,
+                integrity_directory,
+            ],
             file_size,
         )?;
 
@@ -160,12 +181,16 @@ impl Header {
 fn checked_table_len(count: u32, entry_size: u32, expected_entry_size: u32) -> Result<u64> {
     if count == 0 {
         if entry_size != 0 && entry_size != expected_entry_size {
-            return Err(FormatError::InvalidHeader("invalid empty directory entry size"));
+            return Err(FormatError::InvalidHeader(
+                "invalid empty directory entry size",
+            ));
         }
         return Ok(0);
     }
     if entry_size != expected_entry_size {
-        return Err(FormatError::InvalidHeader("unexpected fixed directory entry size"));
+        return Err(FormatError::InvalidHeader(
+            "unexpected fixed directory entry size",
+        ));
     }
     u64::from(count)
         .checked_mul(u64::from(entry_size))
@@ -177,11 +202,19 @@ fn u16_at(bytes: &[u8], offset: usize) -> u16 {
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("fixed header slice"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("fixed header slice"),
+    )
 }
 
 fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("fixed header slice"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("fixed header slice"),
+    )
 }
 
 #[cfg(test)]
