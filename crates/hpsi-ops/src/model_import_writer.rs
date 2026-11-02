@@ -373,8 +373,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 if selector_block_bytes == 0 || selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
                     return Err(VqError("selector block exceeds HPSI payload limit"));
                 }
-                let selector_blocks = rows / block_rows
-                    + usize::from(rows % block_rows != 0);
+                let selector_blocks = rows / block_rows + usize::from(rows % block_rows != 0);
                 (
                     2usize,
                     selector_blocks
