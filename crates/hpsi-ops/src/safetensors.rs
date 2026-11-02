@@ -147,59 +147,74 @@ impl SafeTensorFile {
         first_row: u64,
         row_count: u64,
     ) -> Result<Vec<f32>, SafeTensorError> {
-        let t = self
-            .tensors
-            .iter()
-            .find(|t| t.name == name)
+        let t = self.tensors.iter().find(|t| t.name == name)
             .ok_or(SafeTensorError::InvalidTensor)?;
-        if t.dtype != "F32" || t.shape.len() != 2 {
-            return Err(SafeTensorError::UnsupportedDtype);
-        }
-        let rows = t.shape[0];
-        let cols = t.shape[1];
-        let end_row = first_row
-            .checked_add(row_count)
+        if t.shape.len() != 2 { return Err(SafeTensorError::UnsupportedDtype); }
+        let width = match t.dtype.as_str() {
+            "F32" => 4_u64, "F16" | "BF16" => 2_u64,
+            _ => return Err(SafeTensorError::UnsupportedDtype),
+        };
+        let rows=t.shape[0]; let cols=t.shape[1];
+        let end_row=first_row.checked_add(row_count).ok_or(SafeTensorError::OutOfBounds)?;
+        if end_row>rows { return Err(SafeTensorError::OutOfBounds); }
+        let elements=row_count.checked_mul(cols).ok_or(SafeTensorError::OutOfBounds)?;
+        let bytes_len=usize::try_from(elements.checked_mul(width).ok_or(SafeTensorError::OutOfBounds)?)
+            .map_err(|_|SafeTensorError::Allocation)?;
+        let relative=first_row.checked_mul(cols).and_then(|v|v.checked_mul(width))
             .ok_or(SafeTensorError::OutOfBounds)?;
-        if end_row > rows {
-            return Err(SafeTensorError::OutOfBounds);
-        }
-        let elements = row_count
-            .checked_mul(cols)
+        let offset=self.data_start.checked_add(t.data_start).and_then(|v|v.checked_add(relative))
             .ok_or(SafeTensorError::OutOfBounds)?;
-        let bytes_len = usize::try_from(
-            elements
-                .checked_mul(4)
-                .ok_or(SafeTensorError::OutOfBounds)?,
-        )
-        .map_err(|_| SafeTensorError::Allocation)?;
-        let relative = first_row
-            .checked_mul(cols)
-            .and_then(|v| v.checked_mul(4))
-            .ok_or(SafeTensorError::OutOfBounds)?;
-        let offset = self
-            .data_start
-            .checked_add(t.data_start)
-            .and_then(|v| v.checked_add(relative))
-            .ok_or(SafeTensorError::OutOfBounds)?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(bytes_len)
-            .map_err(|_| SafeTensorError::Allocation)?;
-        bytes.resize(bytes_len, 0);
-        self.source
-            .read_exact_at(offset, &mut bytes)
-            .map_err(|_| SafeTensorError::Io)?;
-        Ok(bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-            .collect())
+        let mut bytes=Vec::new();
+        bytes.try_reserve_exact(bytes_len).map_err(|_|SafeTensorError::Allocation)?;
+        bytes.resize(bytes_len,0);
+        self.source.read_exact_at(offset,&mut bytes).map_err(|_|SafeTensorError::Io)?;
+        let values=if width==4 {
+            bytes.chunks_exact(4).map(|b|f32::from_le_bytes([b[0],b[1],b[2],b[3]])).collect()
+        } else if t.dtype=="BF16" {
+            bytes.chunks_exact(2).map(|b|f32::from_bits(u32::from(u16::from_le_bytes([b[0],b[1]]))<<16)).collect()
+        } else {
+            bytes.chunks_exact(2).map(|b|f16_to_f32(u16::from_le_bytes([b[0],b[1]]))).collect()
+        };
+        Ok(values)
     }
+}
+
+
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = u32::from(bits & 0x8000) << 16;
+    let exponent = (bits >> 10) & 0x1f;
+    let fraction = u32::from(bits & 0x03ff);
+    let result = match exponent {
+        0 if fraction == 0 => sign,
+        0 => {
+            let value = (fraction as f32) * 2.0_f32.powi(-24);
+            return if sign == 0 { value } else { -value };
+        }
+        0x1f => sign | 0x7f80_0000 | (fraction << 13),
+        _ => sign | (u32::from(exponent + (127 - 15)) << 23) | (fraction << 13),
+    };
+    f32::from_bits(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use hpsi_format::MemorySource;
+    #[test]
+    fn converts_f16_and_bf16_row_windows_to_f32() {
+        for (dtype, one, minus_two) in [("F16", 0x3c00_u16, 0xc000_u16), ("BF16", 0x3f80_u16, 0xc000_u16)] {
+            let header = format!(r#"{{"w":{{"dtype":"{}","shape":[1,2],"data_offsets":[0,4]}}}}"#, dtype);
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            bytes.extend_from_slice(&one.to_le_bytes());
+            bytes.extend_from_slice(&minus_two.to_le_bytes());
+            let file = SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096).unwrap();
+            let values = file.read_f32_rows("w", 0, 1).unwrap();
+            assert_eq!(values, vec![1.0, -2.0]);
+        }
+    }
+
     #[test]
     fn reads_only_requested_f32_rows() {
         let header = br#"{"w":{"dtype":"F32","shape":[3,2],"data_offsets":[0,24]}}"#;
