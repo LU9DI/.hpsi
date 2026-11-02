@@ -1099,14 +1099,9 @@ mod tests {
         )
         .unwrap();
         let mut output = Cursor::new(Vec::new());
-        let stats = write_model_import_to_hpsi_calibrated(
-            &source,
-            &calibrated,
-            &mut output,
-            config(),
-            1,
-        )
-        .unwrap();
+        let stats =
+            write_model_import_to_hpsi_calibrated(&source, &calibrated, &mut output, config(), 1)
+                .unwrap();
         assert_eq!(stats.tensor_count, 3);
 
         let reader = ModelReader::open(
@@ -1118,7 +1113,10 @@ mod tests {
         let source_tensors = reader.metadata.value["user"]["source_tensors"]
             .as_array()
             .unwrap();
-        let bias = source_tensors.iter().find(|item| item["name"] == "bias").unwrap();
+        let bias = source_tensors
+            .iter()
+            .find(|item| item["name"] == "bias")
+            .unwrap();
         assert!(bias.get("calibration").is_none());
         let weight = source_tensors
             .iter()
@@ -1129,11 +1127,12 @@ mod tests {
         assert_eq!(weight["calibration"]["dataset_sha256"], "a".repeat(64));
         assert_eq!(weight["calibration"]["sample_count"], 12);
         assert_eq!(weight["calibration"]["features"], 8);
-        assert_eq!(
-            weight["calibration"]["statistic"],
-            "diagonal_second_moment"
+        assert_eq!(weight["calibration"]["statistic"], "diagonal_second_moment");
+        assert!(
+            weight["calibration"]
+                .get("activation_second_moment")
+                .is_none()
         );
-        assert!(weight["calibration"].get("activation_second_moment").is_none());
     }
 
     #[test]
@@ -1157,14 +1156,8 @@ mod tests {
         calibrated.calibrations[0].dataset_sha256 = "z".repeat(64);
         let mut output = Cursor::new(Vec::new());
         assert!(
-            write_model_import_to_hpsi_calibrated(
-                &source,
-                &calibrated,
-                &mut output,
-                config(),
-                1,
-            )
-            .is_err()
+            write_model_import_to_hpsi_calibrated(&source, &calibrated, &mut output, config(), 1,)
+                .is_err()
         );
         assert!(output.get_ref().is_empty());
     }
