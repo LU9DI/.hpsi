@@ -1053,3 +1053,62 @@ mod row_alignment_tests {
         assert!(selectors_per_row(24, 5).is_err());
     }
 }
+ 
+#[cfg(test)]
+mod streaming_row_emission_tests {
+    use super::*;
+
+    #[test]
+    fn row_emission_matches_buffered_streaming_encoder() {
+        let rows = 6;
+        let cols = 16;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index * 17 % 31) as f32 - 15.0) / 7.0)
+            .collect();
+        for codebook_count in 1..=4 {
+            let config = VqConfig {
+                iterations: 4,
+                sample_limit: 32,
+                codebook_count,
+                beam_width: 8,
+            };
+            if selectors_per_row(cols, codebook_count).is_err() {
+                continue;
+            }
+            let buffered = VqMatrix::encode_from_reader(
+                rows, cols, config,
+                |offset, count| {
+                    let start = offset as usize;
+                    let end = start + count as usize;
+                    Ok(weights[start..end].to_vec())
+                },
+            ).unwrap();
+            let mut emitted = Vec::new();
+            let codebook = VqMatrix::encode_from_reader_to(
+                rows, cols, config,
+                |offset, count| {
+                    let start = offset as usize;
+                    let end = start + count as usize;
+                    Ok(weights[start..end].to_vec())
+                },
+                |row, bytes| {
+                    assert_eq!(row as usize, emitted.len());
+                    emitted.extend_from_slice(bytes);
+                    Ok(())
+                },
+            ).unwrap();
+            assert_eq!(codebook, buffered.codebook());
+            assert_eq!(emitted, buffered.packed_indices());
+        }
+    }
+
+    #[test]
+    fn row_emitter_propagates_consumer_failure() {
+        let result = VqMatrix::encode_from_reader_to(
+            2, 16, VqConfig::default(),
+            |_, count| Ok(vec![0.25; count as usize]),
+            |_, _| Err(VqError("downstream writer failed")),
+        );
+        assert!(matches!(result, Err(VqError("downstream writer failed"))));
+    }
+}
