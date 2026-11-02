@@ -1191,6 +1191,12 @@ impl<'a> HpsiVqExecutor<'a> {
             let block = reader
                 .read_block(codebook_tensor_id, block_id)
                 .map_err(|_| VqError("failed to read HPSI codebook block"))?;
+            let remaining = expected_codebook_bytes
+                .checked_sub(codebook_bytes.len())
+                .ok_or(VqError("HPSI codebook payload exceeds declared size"))?;
+            if block.payload.len() > remaining {
+                return Err(VqError("HPSI codebook block exceeds declared payload size"));
+            }
             codebook_bytes.extend_from_slice(&block.payload);
         }
         if codebook_bytes.len() != expected_codebook_bytes {
@@ -1565,6 +1571,31 @@ fn nearest_centroid(vector: &[f32; GROUP_SIZE], centroids: &[[f32; GROUP_SIZE]])
         }
     }
     best_index
+}
+
+#[cfg(test)]
+mod payload_block_tests {
+    use super::*;
+
+    #[test]
+    fn splits_payload_without_losing_bytes() {
+        let payload = (0_u8..10).collect::<Vec<_>>();
+        let blocks = payload_blocks(&payload, 4).unwrap();
+        assert_eq!(
+            blocks.iter().map(|block| block.bytes.as_slice()).collect::<Vec<_>>(),
+            vec![&[0, 1, 2, 3][..], &[4, 5, 6, 7][..], &[8, 9][..]],
+        );
+    }
+
+    #[test]
+    fn rejects_zero_block_size() {
+        assert!(payload_blocks(&[1, 2, 3], 0).is_err());
+    }
+
+    #[test]
+    fn empty_payload_has_no_blocks() {
+        assert!(payload_blocks(&[], 4).unwrap().is_empty());
+    }
 }
 
 fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Result<Vec<PayloadBlock>, VqError> {
