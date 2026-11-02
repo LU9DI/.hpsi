@@ -1,6 +1,6 @@
 use hpsi_format::{
-    serialize_metadata_limited, DType, FileSource, MemorySource, ModelReader, ModelWriter,
-    PayloadBlock, ReaderLimits, TensorInput,
+    DType, FileSource, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits,
+    TensorInput, serialize_metadata_limited,
 };
 use std::io::Cursor;
 use std::sync::Arc;
