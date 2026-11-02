@@ -28,7 +28,9 @@ pub fn validate_regions(regions: &[Region], file_size: u64) -> Result<()> {
             return Err(FormatError::InvalidRegion("region overlaps fixed header"));
         }
         if region.offset % 8 != 0 {
-            return Err(FormatError::InvalidRegion("region offset is not 8-byte aligned"));
+            return Err(FormatError::InvalidRegion(
+                "region offset is not 8-byte aligned",
+            ));
         }
         if region.end()? > file_size {
             return Err(FormatError::InvalidRegion("region extends beyond file"));
