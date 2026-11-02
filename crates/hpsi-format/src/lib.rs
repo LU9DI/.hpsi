@@ -25,4 +25,4 @@ pub use reader::{BlockData, ModelReader, ReaderStats};
 pub use region::{Region, validate_regions};
 pub use source::{FileSource, MemorySource, RandomAccessSource};
 pub use tensor::{DType, TensorDescriptor};
-pub use writer::{ModelWriter, PayloadBlock, StreamingTensorInput, TensorInput, WriterStats};
+pub use writer::{ModelWriter, PayloadBlock, StreamingTensorInput, TensorInput, WriterStats, serialize_metadata_limited};
