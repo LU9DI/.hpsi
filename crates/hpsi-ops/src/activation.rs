@@ -189,6 +189,23 @@ mod tests {
     }
 
     #[test]
+    fn validates_public_struct_provenance_without_json_parsing() {
+        let mut calibration = ActivationCalibration::from_json(&document()).unwrap();
+        assert!(calibration.validate().is_ok());
+
+        calibration.model_type.clear();
+        assert!(calibration.validate().is_err());
+
+        let mut calibration = ActivationCalibration::from_json(&document()).unwrap();
+        calibration.model_revision = Some("  ".into());
+        assert!(calibration.validate().is_err());
+
+        let mut calibration = ActivationCalibration::from_json(&document()).unwrap();
+        calibration.dataset_sha256 = "z".repeat(64);
+        assert!(calibration.validate().is_err());
+    }
+
+    #[test]
     fn rejects_unsupported_version_and_invalid_dataset_hash() {
         assert!(
             ActivationCalibration::from_json(&document().replace("\"version\":1", "\"version\":2"))
