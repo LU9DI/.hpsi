@@ -971,6 +971,25 @@ mod streaming_writer_tests {
     }
 
     #[test]
+    fn path_streaming_unwind_does_not_leave_temporary_file() {
+        let (directory, destination) = test_output_path("callback-unwind");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ModelWriter::write_path_streaming(
+                &destination,
+                &one_byte_streaming_tensor(),
+                |_, _, _| -> Result<u64> {
+                    std::panic::resume_unwind(Box::new("injected unwind"));
+                },
+            );
+        }));
+
+        assert!(result.is_err());
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
     fn path_streaming_callback_failure_does_not_publish_or_leave_temporary_file() {
         let (directory, destination) = test_output_path("callback-failure");
         let result = ModelWriter::write_path_streaming(
