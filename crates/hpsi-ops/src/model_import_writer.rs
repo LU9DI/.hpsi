@@ -1,5 +1,5 @@
 use crate::{
-    CODEBOOK_SIZE, GROUP_SIZE, ModelImportPlan, SafeTensorFile, TensorDisposition, VqConfig,
+    CODEBOOK_SIZE, CalibratedModelImportPlan, CalibrationProvenance, GROUP_SIZE, ModelImportPlan, SafeTensorFile, TensorDisposition, VqConfig,
     VqError, VqMatrix,
 };
 use hpsi_format::{
@@ -168,6 +168,35 @@ pub fn write_model_import_to_hpsi_path(
     config: VqConfig,
     block_rows: usize,
 ) -> Result<WriterStats, VqError> {
+    write_model_import_to_hpsi_path_inner(source, plan, None, destination, config, block_rows)
+}
+
+/// Publish an import and its calibration provenance atomically.
+pub fn write_model_import_to_hpsi_path_calibrated(
+    source: &SafeTensorFile,
+    calibrated_plan: &CalibratedModelImportPlan,
+    destination: impl AsRef<Path>,
+    config: VqConfig,
+    block_rows: usize,
+) -> Result<WriterStats, VqError> {
+    write_model_import_to_hpsi_path_inner(
+        source,
+        &calibrated_plan.plan,
+        Some(&calibrated_plan.calibrations),
+        destination,
+        config,
+        block_rows,
+    )
+}
+
+fn write_model_import_to_hpsi_path_inner(
+    source: &SafeTensorFile,
+    plan: &ModelImportPlan,
+    calibrations: Option<&[CalibrationProvenance]>,
+    destination: impl AsRef<Path>,
+    config: VqConfig,
+    block_rows: usize,
+) -> Result<WriterStats, VqError> {
     let destination = destination.as_ref();
     if destination.file_name().is_none() {
         return Err(VqError("destination must name a file"));
@@ -200,9 +229,10 @@ pub fn write_model_import_to_hpsi_path(
         file: Some(temporary_file),
     };
     (|| {
-        let stats = write_model_import_to_hpsi(
+        let stats = write_model_import_to_hpsi_inner(
             source,
             plan,
+            calibrations,
             temporary.file.as_mut().expect("temporary output is open"),
             config,
             block_rows,
@@ -247,6 +277,35 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     config: VqConfig,
     block_rows: usize,
 ) -> Result<WriterStats, VqError> {
+    write_model_import_to_hpsi_inner(source, plan, None, output, config, block_rows)
+}
+
+/// Write an import artifact with validated calibration provenance.
+pub fn write_model_import_to_hpsi_calibrated<W: Write + Seek>(
+    source: &SafeTensorFile,
+    calibrated_plan: &CalibratedModelImportPlan,
+    output: &mut W,
+    config: VqConfig,
+    block_rows: usize,
+) -> Result<WriterStats, VqError> {
+    write_model_import_to_hpsi_inner(
+        source,
+        &calibrated_plan.plan,
+        Some(&calibrated_plan.calibrations),
+        output,
+        config,
+        block_rows,
+    )
+}
+
+fn write_model_import_to_hpsi_inner<W: Write + Seek>(
+    source: &SafeTensorFile,
+    plan: &ModelImportPlan,
+    calibrations: Option<&[CalibrationProvenance]>,
+    output: &mut W,
+    config: VqConfig,
+    block_rows: usize,
+) -> Result<WriterStats, VqError> {
     if block_rows == 0 || plan.tensors.is_empty() || plan.tensors.len() != source.tensors().len() {
         return Err(VqError(
             "model import plan must cover every source tensor and use non-zero block rows",
@@ -277,6 +336,34 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
             return Err(VqError("source tensor names are not unique"));
         }
     }
+    // Validate the optional compact provenance independently of the public
+    // wrapper: callers can construct or mutate it directly in Rust.
+    let mut calibration_by_name = std::collections::HashMap::new();
+    if let Some(calibrations) = calibrations {
+        calibration_by_name
+            .try_reserve(calibrations.len())
+            .map_err(|_| VqError("could not reserve calibration provenance index"))?;
+        let mut previous: Option<&str> = None;
+        for calibration in calibrations {
+            if calibration.source_name.trim().is_empty()
+                || previous.is_some_and(|name| name >= calibration.source_name.as_str())
+                || calibration.model_type.trim().is_empty()
+                || calibration.model_revision.as_deref().is_some_and(|value| value.trim().is_empty())
+                || calibration.sample_count == 0
+                || calibration.features == 0
+                || calibration.statistic != "diagonal_second_moment"
+                || calibration.dataset_sha256.len() != 64
+                || !calibration.dataset_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(VqError("calibration provenance is invalid or not uniquely sorted"));
+            }
+            previous = Some(&calibration.source_name);
+            if calibration_by_name.insert(calibration.source_name.as_str(), calibration).is_some() {
+                return Err(VqError("duplicate calibration provenance tensor name"));
+            }
+        }
+    }
+
     // The plan is sorted by source name. Build one sorted reference index so
     // validation and emission resolve each source tensor in O(log n), rather
     // than rescanning the complete source directory for every planned tensor.
@@ -381,6 +468,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     || planned.indices_name.is_some()
                     || planned.calibration_samples.is_some()
                     || planned.activation_second_moment.is_some()
+                    || calibration_by_name.contains_key(planned.source_name.as_str())
                 {
                     return Err(VqError("raw-preserved tensor must not carry VQ metadata"));
                 }
@@ -391,6 +479,32 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         return Err(VqError(
             "import plan does not cover the complete source tensor set",
         ));
+    }
+    if let Some(calibrations) = calibrations {
+        for planned in &plan.tensors {
+            let provenance = calibration_by_name.get(planned.source_name.as_str());
+            match (planned.disposition, provenance) {
+                (TensorDisposition::QuantizeVq, Some(item)) => {
+                    if planned.calibration_samples != Some(item.sample_count)
+                        || u64::try_from(item.features).ok() != planned.source_shape.get(1).copied()
+                        || planned.activation_second_moment.as_ref().map(Vec::len) != Some(item.features)
+                    {
+                        return Err(VqError("calibration provenance does not match planned VQ tensor"));
+                    }
+                }
+                (TensorDisposition::QuantizeVq, None) => {
+                    if planned.calibration_samples.is_some() || planned.activation_second_moment.is_some() {
+                        return Err(VqError("calibrated VQ tensor is missing persisted provenance"));
+                    }
+                }
+                (TensorDisposition::PreserveRaw, _) => {
+                    return Err(VqError("raw-preserved tensor cannot have calibration provenance"));
+                }
+            }
+        }
+        if calibration_by_name.len() > plan.tensors.len() {
+            return Err(VqError("calibration provenance references an unknown source tensor"));
+        }
     }
 
     // Reject output layouts that cannot fit the HPSI writer limits before
@@ -546,7 +660,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         .try_reserve_exact(output_tensor_count)
         .map_err(|_| VqError("could not reserve metadata tensor names"))?;
     for planned in &plan.tensors {
-        provenance.push(json!({
+        let mut source_entry = json!({
             "name": planned.source_name,
             "source_dtype": planned.source_dtype,
             "source_shape": planned.source_shape,
@@ -554,7 +668,21 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 TensorDisposition::QuantizeVq => "quantize_vq",
                 TensorDisposition::PreserveRaw => "preserve_raw"
             }
-        }));
+        });
+        if let Some(calibration) = calibration_by_name.get(planned.source_name.as_str()) {
+            let mut persisted = json!({
+                "model_type": calibration.model_type,
+                "dataset_sha256": calibration.dataset_sha256,
+                "sample_count": calibration.sample_count,
+                "features": calibration.features,
+                "statistic": calibration.statistic
+            });
+            if let Some(revision) = calibration.model_revision.as_deref() {
+                persisted["model_revision"] = json!(revision);
+            }
+            source_entry["calibration"] = persisted;
+        }
+        provenance.push(source_entry);
         match planned.disposition {
             TensorDisposition::PreserveRaw => {
                 metadata_tensor_names.push(clone_import_name(&planned.source_name)?)
