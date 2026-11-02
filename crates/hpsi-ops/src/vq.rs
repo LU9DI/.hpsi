@@ -777,7 +777,6 @@ fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Vec<PayloadBlock> {
         .collect()
 }
 
-
 #[cfg(test)]
 mod row_alignment_tests {
     use super::*;
