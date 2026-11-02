@@ -228,6 +228,28 @@ fn view_rejects_mismatched_shapes_and_index_lengths() {
 }
 
 #[test]
+fn residual_codebooks_handle_sparse_samples_deterministically() {
+    // Fewer training vectors than available selector values is common for
+    // small tensors and must not produce NaNs or unstable artifacts.
+    let weights = synthetic_weights(1, 8);
+    let config = VqConfig {
+        codebook_count: 4,
+        iterations: 16,
+        sample_limit: 64,
+    };
+    let first = VqMatrix::encode(&weights, 1, 8, config).unwrap();
+    let second = VqMatrix::encode(&weights, 1, 8, config).unwrap();
+
+    assert_eq!(first.codebook(), second.codebook());
+    assert_eq!(first.packed_indices(), second.packed_indices());
+    assert!(first.codebook().iter().all(|value| value.is_finite()));
+    for stage in 1..4 {
+        let zero_centroid = &first.codebook()[stage * 16 * 8..stage * 16 * 8 + 8];
+        assert_eq!(zero_centroid, &[0.0; 8]);
+    }
+}
+
+#[test]
 fn encoder_rejects_non_finite_weights() {
     let mut weights = vec![0.0_f32; 16];
     weights[3] = f32::NAN;
