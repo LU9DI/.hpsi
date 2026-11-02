@@ -107,6 +107,14 @@ impl Default for VqConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct VqTensorNames<'a> {
+    pub codebook_id: u32,
+    pub codebook_name: &'a str,
+    pub indices_id: u32,
+    pub indices_name: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VqError(pub &'static str);
 
@@ -204,7 +212,7 @@ impl VqMatrix {
             rows,
             cols,
             config,
-            |offset, count| read_elements(offset, count),
+            read_elements,
             |_, row| {
                 packed_indices.extend_from_slice(row);
                 Ok(())
@@ -388,7 +396,7 @@ impl VqMatrix {
             cols,
             config,
             activation_second_moment,
-            |offset, count| read_elements(offset, count),
+            read_elements,
             |_, row| {
                 packed_indices.extend_from_slice(row);
                 Ok(())
@@ -428,10 +436,12 @@ impl VqMatrix {
             cols,
             config,
             block_rows,
-            0,
-            "hpsi.vq.codebook",
-            1,
-            "hpsi.vq.indices",
+            VqTensorNames {
+                codebook_id: 0,
+                codebook_name: "hpsi.vq.codebook",
+                indices_id: 1,
+                indices_name: "hpsi.vq.indices",
+            },
             read_elements,
         )
     }
@@ -446,10 +456,7 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         block_rows: usize,
-        codebook_tensor_id: u32,
-        codebook_tensor_name: &str,
-        indices_tensor_id: u32,
-        indices_tensor_name: &str,
+        tensor_names: VqTensorNames<'_>,
         mut read_elements: F,
     ) -> Result<WriterStats, VqError>
     where
@@ -476,7 +483,7 @@ impl VqMatrix {
             rows,
             cols,
             config,
-            |offset, count| read_elements(offset, count),
+            read_elements,
             |_, row| {
                 spool
                     .write_all(row)
@@ -547,8 +554,8 @@ impl VqMatrix {
             .map_err(|_| VqError("could not rewind selector spool"))?;
         let tensors = vec![
             StreamingTensorInput {
-                tensor_id: codebook_tensor_id,
-                name: codebook_tensor_name.into(),
+                tensor_id: tensor_names.codebook_id,
+                name: tensor_names.codebook_name.into(),
                 dtype: DType::F32,
                 dimensions: vec![
                     config.codebook_count as u64,
@@ -558,8 +565,8 @@ impl VqMatrix {
                 block_lengths: vec![codebook_len],
             },
             StreamingTensorInput {
-                tensor_id: indices_tensor_id,
-                name: indices_tensor_name.into(),
+                tensor_id: tensor_names.indices_id,
+                name: tensor_names.indices_name.into(),
                 dtype: DType::Opaque,
                 dimensions: vec![expected_index_bytes],
                 block_lengths: index_block_lengths,
@@ -941,7 +948,7 @@ impl VqMatrix {
         }
         Ok(vec![
             TensorInput {
-                tensor_id: codebook_tensor_id,
+                tensor_id: tensor_names.codebook_id,
                 name: "hpsi.vq.codebook".into(),
                 dtype: DType::F32,
                 dimensions: vec![
@@ -952,7 +959,7 @@ impl VqMatrix {
                 blocks: payload_blocks(&codebook_bytes, 64 * 1024),
             },
             TensorInput {
-                tensor_id: indices_tensor_id,
+                tensor_id: tensor_names.indices_id,
                 name: "hpsi.vq.indices".into(),
                 dtype: DType::Opaque,
                 dimensions: vec![self.packed_indices.len() as u64],
@@ -1768,7 +1775,13 @@ mod hpsi_streaming_export_tests {
                 },
             )
             .unwrap();
-            assert_eq!(stats.block_count, expected_blocks + 1);
+            assert_eq!(
+                stats.block_count,
+                u32::try_from(expected_blocks)
+                    .unwrap()
+                    .checked_add(1)
+                    .unwrap()
+            );
 
             let reader = ModelReader::open(
                 Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
