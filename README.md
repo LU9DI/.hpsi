@@ -621,3 +621,8 @@ The new `hpsi-ops` crate contains the first compute primitive over a compressed 
 The selector stream has a theoretical cost of 0.5 bits per weight before codebook and container overhead. That is a storage property of this experimental representation, **not** evidence of acceptable model quality. Held-out numerical evaluation, end-to-end artifact accounting, and reproducible latency benchmarks are still required before comparing it with dense or established quantized runtimes.
 
 See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](specs/002-direct-vq-matvec/plan.md), and [tasks](specs/002-direct-vq-matvec/tasks.md).
+
+
+### Initial VQ benchmark result
+
+The first deterministic 256 × 256 synthetic benchmark measured **49.35× smaller than dense F32 at the HPSI-artifact level**, but its held-out relative L2 error was **0.763** and its median direct-matvec latency was slower than the dense baseline (0.0397 ms vs. 0.0303 ms). This confirms that low storage cost alone is not sufficient: the 4-bit/group representation is a useful experimental baseline, not yet a viable quality/performance tradeoff. See [the full benchmark report](docs/benchmark-vq.md).
