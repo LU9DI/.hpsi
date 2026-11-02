@@ -162,8 +162,8 @@ impl ModelImportPlan {
             ) = if quantizable {
                 let codebook = generated_tensor_name(&tensor.name, ".hpsi_vq.codebook")?;
                 let indices = generated_tensor_name(&tensor.name, ".hpsi_vq.indices")?;
-                if !generated_names.insert(codebook.clone())
-                    || !generated_names.insert(indices.clone())
+                if !generated_names.insert(clone_plan_text(&codebook)?)
+                    || !generated_names.insert(clone_plan_text(&indices)?)
                     || codebook == indices
                 {
                     return Err(VqError("generated VQ tensor name collision"));
