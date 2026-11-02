@@ -225,6 +225,11 @@ impl ModelReader {
         self.stats.snapshot()
     }
 
+    /// Return tensor descriptors in their validated directory order.
+    pub fn tensors(&self) -> &[TensorDescriptor] {
+        &self.tensors
+    }
+
     pub fn tensor_count(&self) -> usize {
         self.tensors.len()
     }
