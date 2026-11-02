@@ -180,7 +180,9 @@ For RAW, `payload_length == logical_length`. For ZSTD_FRAME, the frame must be i
 | 12 | 16 | bytes | digest | CRC32C little-endian in bytes 0..3; bytes 4..15 zero |
 | 28 | 4 | u32 | reserved | Zero |
 
-At most one integrity record may target a given metadata region or block payload in v0.1. A block's `checksum_index` must refer to a record whose target kind is block payload and whose target index equals that block's directory index. A metadata checksum record uses target index zero.
+Integrity records are optional in v0.1. The integrity directory may be empty, and metadata or individual block payloads may have no checksum record. At most one integrity record may target a given metadata region or block payload. A block's `checksum_index` is either `0xffffffff` (no checksum) or an index into the integrity directory; when present, it must refer to a record whose target kind is block payload and whose target index equals that block's directory index. A metadata checksum record uses target index zero. Every integrity record must be referenced consistently by its target; duplicate targets and orphaned records are invalid.
+
+`verify_all()` verifies every declared integrity record and reports the number successfully checked. It does not imply that unrecorded regions were checksummed. Applications requiring full integrity coverage must check that metadata and every block have a checksum record before treating verification as complete.
 
 CRC32C detects accidental corruption; it does not authenticate a file or protect against a malicious producer who can rewrite the file and checksum. Cryptographic hashes, signatures, and authenticity are out of scope for v0.1.
 
@@ -234,7 +236,7 @@ The initial API is language-specific in implementation, but its semantics are fi
 - `tensor(id) -> TensorDescriptor`: resolve tensor in O(1) or O(log n).
 - `block(tensor_id, block_id) -> BlockDescriptor`: resolve block without scanning payload.
 - `read_block(tensor_id, block_id) -> BlockData`: read exactly the declared payload range and return descriptor plus bytes.
-- `verify_all() -> VerificationReport`: stream through all integrity-covered regions using bounded buffers.
+- `verify_all() -> VerificationReport`: stream through every declared integrity record using bounded buffers; the result must not be interpreted as full artifact coverage when records are optional or absent.
 - `stats() -> ReaderStats`: expose metadata/directory/payload bytes read and read-operation counts.
 
 The reader must support an injectable random-access source abstraction so tests can assert exactly which ranges were read.
