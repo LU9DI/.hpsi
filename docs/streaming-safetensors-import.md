@@ -69,3 +69,19 @@ retains the compressed selector stream. The existing `ModelWriter::write`
 API accepts in-memory `TensorInput` payload blocks. A separate seekable,
 streaming writer is still required to stream selectors directly to the HPSI
 artifact without retaining the complete compressed index tensor.
+
+
+## Streaming HPSI writer
+
+The format crate now exposes `StreamingTensorInput` and
+`ModelWriter::write_streaming`. Supply tensor metadata and the exact length
+of each payload block up front; a callback then writes each block directly to
+the seekable output. The writer plans offsets before emission and computes
+CRC32C incrementally as bytes pass through. It patches each integrity record
+after the corresponding block has been written, without buffering the block.
+
+For filesystem output, `ModelWriter::write_path_streaming` writes to a
+same-directory temporary file, syncs it, reopens and verifies the complete
+artifact, and publishes it with a non-overwriting hard link. The callback
+must write exactly the declared block length. The older in-memory writer API
+remains available and unchanged.
