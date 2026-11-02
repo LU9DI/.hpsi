@@ -341,7 +341,6 @@ mod tests {
     use super::*;
     use hpsi_format::MemorySource;
     #[test]
-    #[test]
     fn copies_raw_payload_in_bounded_chunks_without_dtype_conversion() {
         let header = br#"{"raw":{"dtype":"I16","shape":[3],"data_offsets":[0,6]}}"#;
         let payload = [0x34_u8, 0x12, 0xcd, 0xab, 0x01, 0x02];
@@ -361,6 +360,7 @@ mod tests {
         ));
     }
 
+    #[test]
     fn converts_f16_and_bf16_row_windows_to_f32() {
         for (dtype, one, minus_two) in [
             ("F16", 0x3c00_u16, 0xc000_u16),
