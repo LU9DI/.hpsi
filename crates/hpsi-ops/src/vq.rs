@@ -947,30 +947,62 @@ impl VqMatrix {
             .checked_mul(block_rows)
             .ok_or(VqError("index block byte count overflow"))?;
 
-        let mut codebook_bytes = Vec::with_capacity(self.codebook.len() * 4);
+        let codebook_byte_len = self
+            .codebook
+            .len()
+            .checked_mul(std::mem::size_of::<f32>())
+            .ok_or(VqError("VQ codebook byte length overflow"))?;
+        let mut codebook_bytes = Vec::new();
+        codebook_bytes
+            .try_reserve_exact(codebook_byte_len)
+            .map_err(|_| VqError("could not allocate VQ codebook bytes"))?;
         for value in &self.codebook {
             codebook_bytes.extend_from_slice(&value.to_le_bytes());
         }
-        Ok(vec![
-            TensorInput {
-                tensor_id: codebook_tensor_id,
-                name: "hpsi.vq.codebook".into(),
-                dtype: DType::F32,
-                dimensions: vec![
-                    self.codebook_count as u64,
-                    CODEBOOK_SIZE as u64,
-                    GROUP_SIZE as u64,
-                ],
-                blocks: payload_blocks(&codebook_bytes, 64 * 1024)?,
-            },
-            TensorInput {
-                tensor_id: indices_tensor_id,
-                name: "hpsi.vq.indices".into(),
-                dtype: DType::Opaque,
-                dimensions: vec![self.packed_indices.len() as u64],
-                blocks: payload_blocks(&self.packed_indices, index_block_bytes)?,
-            },
-        ])
+
+        let codebook_count = u64::try_from(self.codebook_count)
+            .map_err(|_| VqError("VQ codebook count exceeds format limits"))?;
+        let index_byte_len = u64::try_from(self.packed_indices.len())
+            .map_err(|_| VqError("VQ selector stream exceeds format limits"))?;
+        let mut codebook_dimensions = Vec::new();
+        codebook_dimensions
+            .try_reserve_exact(3)
+            .map_err(|_| VqError("could not allocate VQ codebook dimensions"))?;
+        codebook_dimensions.extend_from_slice(&[
+            codebook_count,
+            CODEBOOK_SIZE as u64,
+            GROUP_SIZE as u64,
+        ]);
+        let mut codebook_block_lengths = Vec::new();
+        codebook_block_lengths
+            .try_reserve_exact(1)
+            .map_err(|_| VqError("could not allocate VQ codebook block directory"))?;
+        codebook_block_lengths.push(codebook_byte_len as u64);
+        let mut index_dimensions = Vec::new();
+        index_dimensions
+            .try_reserve_exact(1)
+            .map_err(|_| VqError("could not allocate VQ selector dimensions"))?;
+        index_dimensions.push(index_byte_len);
+
+        let mut tensors = Vec::new();
+        tensors
+            .try_reserve_exact(2)
+            .map_err(|_| VqError("could not allocate VQ tensor directory"))?;
+        tensors.push(TensorInput {
+            tensor_id: codebook_tensor_id,
+            name: "hpsi.vq.codebook".into(),
+            dtype: DType::F32,
+            dimensions: codebook_dimensions,
+            blocks: payload_blocks(&codebook_bytes, 64 * 1024)?,
+        });
+        tensors.push(TensorInput {
+            tensor_id: indices_tensor_id,
+            name: "hpsi.vq.indices".into(),
+            dtype: DType::Opaque,
+            dimensions: index_dimensions,
+            blocks: payload_blocks(&self.packed_indices, index_block_bytes)?,
+        });
+        Ok(tensors)
     }
 }
 
