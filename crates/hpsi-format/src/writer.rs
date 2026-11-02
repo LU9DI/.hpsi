@@ -656,6 +656,57 @@ fn crc32c(b: &[u8]) -> u32 {
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 impl ModelWriter {
+    /// Stream, sync, reopen, and verify an artifact before atomic publication.
+    /// Existing destinations are never overwritten.
+    pub fn write_path_streaming<F>(
+        path: impl AsRef<Path>,
+        tensors: &[StreamingTensorInput],
+        mut write_block: F,
+    ) -> Result<WriterStats>
+    where
+        F: FnMut(usize, usize, &mut dyn Write) -> Result<u64>,
+    {
+        let destination = path.as_ref();
+        if destination.file_name().is_none() {
+            return Err(FormatError::InvalidRegion("destination must name a file"));
+        }
+        let parent = destination.parent()
+            .filter(|value| !value.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let (temporary_path, temporary_file) = {
+            let mut created = None;
+            for _ in 0..128 {
+                let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
+                match OpenOptions::new().read(true).write(true).create_new(true).open(&candidate) {
+                    Ok(file) => { created = Some((candidate, file)); break; }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(ioerr(error)),
+                }
+            }
+            created.ok_or(FormatError::Io("could not allocate a unique temporary output file".into()))?
+        };
+        let result = (|| {
+            let mut file = temporary_file;
+            let stats = Self::write_streaming(&mut file, tensors, |tensor, block, output| {
+                write_block(tensor, block, output)
+            })?;
+            file.sync_all().map_err(ioerr)?;
+            drop(file);
+            let source = Arc::new(FileSource::open(&temporary_path)?);
+            let reader = ModelReader::open(source, &ReaderLimits::default())?;
+            reader.verify_all()?;
+            fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
+            #[cfg(unix)]
+            if let Ok(directory) = std::fs::File::open(parent) {
+                let _ = directory.sync_all();
+            }
+            Ok(stats)
+        })();
+        let _ = fs::remove_file(&temporary_path);
+        result
+    }
+
     /// Write, sync, reopen, and verify an artifact before atomically publishing it.
     ///
     /// Publication uses a same-directory hard link and never overwrites an existing
