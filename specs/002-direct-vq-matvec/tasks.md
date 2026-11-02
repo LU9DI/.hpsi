@@ -26,3 +26,8 @@
 - [ ] T022 Capture calibration activations from real transformer layers; evaluate layer-output error, perplexity/task quality, and per-layer importance strategies beyond diagonal shared-position averages.
 - [x] T023 Add a streaming CLI calibration command for rank-2 RAW F32 activation tensors in HPSI; emit versioned diagonal second-moment JSON and test unaligned block boundaries, payload accounting, and non-finite rejection.
 - [ ] T024 Add a reproducible exporter for real transformer activations, pinning model/tokenizer revisions, calibration data, layer identity, sequence handling, and export provenance.
+
+- [x] T024 Add a CPU-first local Hugging Face activation exporter for standard `torch.nn.Linear` modules, with online diagonal second moments, dataset SHA-256 provenance, per-layer calibration JSON, and dependency-free CI checks.
+- [ ] T025 Validate the exporter end-to-end on a real, locally available causal LM; record exact model/tokenizer revisions, software versions, calibration corpus hash, and captured layer coverage.
+- [ ] T026 Import real per-layer calibration into the quantization/evaluation pipeline and measure held-out layer-output error against ordinary VQ and activation-aware VQ.
+- [ ] T027 Evaluate perplexity and task quality on the same real model before making model-level quality claims.
