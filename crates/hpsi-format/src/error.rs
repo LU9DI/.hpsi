@@ -11,6 +11,11 @@ pub enum FormatError {
     UnsupportedFeature { flags: u32 },
     InvalidHeader(&'static str),
     InvalidRegion(&'static str),
+    InvalidDirectory(&'static str),
+    InvalidMetadata(&'static str),
+    InvalidTensor(&'static str),
+    InvalidBlock(&'static str),
+    InvalidReference(&'static str),
     LimitExceeded(&'static str),
     Truncated { expected: usize, actual: usize },
     ArithmeticOverflow(&'static str),
@@ -29,6 +34,11 @@ impl fmt::Display for FormatError {
             }
             Self::InvalidHeader(message) => write!(f, "invalid HPSI header: {message}"),
             Self::InvalidRegion(message) => write!(f, "invalid HPSI region: {message}"),
+            Self::InvalidDirectory(message) => write!(f, "invalid HPSI directory: {message}"),
+            Self::InvalidMetadata(message) => write!(f, "invalid HPSI metadata: {message}"),
+            Self::InvalidTensor(message) => write!(f, "invalid HPSI tensor: {message}"),
+            Self::InvalidBlock(message) => write!(f, "invalid HPSI block: {message}"),
+            Self::InvalidReference(message) => write!(f, "invalid HPSI reference: {message}"),
             Self::LimitExceeded(message) => write!(f, "reader limit exceeded: {message}"),
             Self::Truncated { expected, actual } => {
                 write!(
