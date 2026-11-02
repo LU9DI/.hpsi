@@ -132,7 +132,6 @@ fn open_and_selective_read_touch_only_the_requested_payload_range() {
     assert_eq!(*source.reads.lock().unwrap(), vec![(392, 4)]);
 }
 
-
 #[test]
 fn rejects_truncated_file() {
     let mut bytes = fixture();

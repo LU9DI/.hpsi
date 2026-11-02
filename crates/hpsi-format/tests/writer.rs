@@ -143,7 +143,6 @@ fn write_path_verifies_before_publish_and_never_overwrites() {
     std::fs::remove_file(path).unwrap();
 }
 
-
 #[test]
 fn rejects_overlapping_payload_blocks() {
     let tensors = vec![TensorInput {
@@ -163,10 +162,7 @@ fn rejects_overlapping_payload_blocks() {
     let first_payload_offset = bytes[block_directory + 32..block_directory + 40].to_vec();
     bytes[block_directory + 64 + 32..block_directory + 64 + 40]
         .copy_from_slice(&first_payload_offset);
-    let reader = ModelReader::open(
-        Arc::new(MemorySource::new(bytes)),
-        &ReaderLimits::default(),
-    );
+    let reader = ModelReader::open(Arc::new(MemorySource::new(bytes)), &ReaderLimits::default());
     assert!(reader.is_err());
 }
 
@@ -187,10 +183,8 @@ fn verify_detects_metadata_corruption() {
         .position(|window| window == b"checksum")
         .unwrap();
     bytes[name_offset] = b'C';
-    let reader = ModelReader::open(
-        Arc::new(MemorySource::new(bytes)),
-        &ReaderLimits::default(),
-    ).unwrap();
+    let reader =
+        ModelReader::open(Arc::new(MemorySource::new(bytes)), &ReaderLimits::default()).unwrap();
     assert!(matches!(
         reader.verify_all(),
         Err(hpsi_format::FormatError::ChecksumMismatch)

@@ -20,9 +20,7 @@ fn inspect_reports_shape_and_proves_it_does_not_read_payload() {
         name: "dense.weight".into(),
         dtype: DType::F32,
         dimensions: vec![2, 2],
-        blocks: vec![PayloadBlock {
-            bytes: vec![0; 16],
-        }],
+        blocks: vec![PayloadBlock { bytes: vec![0; 16] }],
     };
     ModelWriter::write_path(&path, &[tensor]).unwrap();
 
