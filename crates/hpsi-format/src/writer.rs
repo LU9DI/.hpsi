@@ -670,7 +670,8 @@ impl ModelWriter {
         if destination.file_name().is_none() {
             return Err(FormatError::InvalidRegion("destination must name a file"));
         }
-        let parent = destination.parent()
+        let parent = destination
+            .parent()
             .filter(|value| !value.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         let (temporary_path, temporary_file) = {
@@ -678,13 +679,23 @@ impl ModelWriter {
             for _ in 0..128 {
                 let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
-                match OpenOptions::new().read(true).write(true).create_new(true).open(&candidate) {
-                    Ok(file) => { created = Some((candidate, file)); break; }
+                match OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .open(&candidate)
+                {
+                    Ok(file) => {
+                        created = Some((candidate, file));
+                        break;
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(error) => return Err(ioerr(error)),
                 }
             }
-            created.ok_or(FormatError::Io("could not allocate a unique temporary output file".into()))?
+            created.ok_or(FormatError::Io(
+                "could not allocate a unique temporary output file".into(),
+            ))?
         };
         let result = (|| {
             let mut file = temporary_file;
