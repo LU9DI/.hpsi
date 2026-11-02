@@ -6,3 +6,4 @@ license = "MIT"
 
 [dependencies]
 hpsi-format = { path = "../hpsi-format" }
+serde_json = "1"
