@@ -1353,3 +1353,47 @@ mod streaming_activation_row_tests {
         assert_eq!(emitted, buffered.packed_indices());
     }
 }
+
+#[cfg(test)]
+mod hpsi_streaming_export_tests {
+    use super::*;
+    use hpsi_format::{MemorySource, ReaderLimits};
+    use std::io::Cursor;
+    use std::sync::Arc;
+
+    #[test]
+    fn reader_encoder_streams_vq_tensors_into_hpsi_writer() {
+        let rows = 8;
+        let cols = 16;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index * 19 % 37) as f32 - 18.0) / 11.0)
+            .collect();
+        let config = VqConfig {
+            iterations: 4,
+            sample_limit: 64,
+            codebook_count: 2,
+            beam_width: 8,
+        };
+        let mut output = Cursor::new(Vec::new());
+        let mut spool = Cursor::new(Vec::new());
+        let stats = VqMatrix::encode_from_reader_to_hpsi(
+            &mut output, &mut spool, rows, cols, config, 3,
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+        ).unwrap();
+        assert_eq!(stats.tensor_count, 2);
+        assert_eq!(stats.block_count, 4);
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        ).unwrap();
+        reader.verify_all().unwrap();
+        let mut selectors = Vec::new();
+        for block_id in 0..3 {
+            selectors.extend_from_slice(&reader.read_block(1, block_id).unwrap().payload);
+        }
+        assert_eq!(selectors.len(), rows * (cols / GROUP_SIZE * config.codebook_count) / 2);
+    }
+}
