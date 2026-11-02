@@ -1,5 +1,5 @@
 use crate::{ActivationCalibration, SafeTensorFile, VqError};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// A deterministic, validated plan for a multi-tensor Safetensors import.
 /// Planning does not write output; it prevents silent tensor loss and name collisions.
@@ -27,6 +27,37 @@ pub enum TensorDisposition {
     PreserveRaw,
 }
 
+fn clone_plan_text(value: &str) -> Result<String, VqError> {
+    let mut cloned = String::new();
+    cloned
+        .try_reserve_exact(value.len())
+        .map_err(|_| VqError("could not allocate model import name"))?;
+    cloned.push_str(value);
+    Ok(cloned)
+}
+
+fn generated_tensor_name(source_name: &str, suffix: &str) -> Result<String, VqError> {
+    let capacity = source_name
+        .len()
+        .checked_add(suffix.len())
+        .ok_or(VqError("generated tensor name length overflow"))?;
+    let mut name = String::new();
+    name.try_reserve_exact(capacity)
+        .map_err(|_| VqError("could not allocate generated tensor name"))?;
+    name.push_str(source_name);
+    name.push_str(suffix);
+    Ok(name)
+}
+
+fn clone_plan_shape(shape: &[u64]) -> Result<Vec<u64>, VqError> {
+    let mut cloned = Vec::new();
+    cloned
+        .try_reserve_exact(shape.len())
+        .map_err(|_| VqError("could not allocate model import tensor shape"))?;
+    cloned.extend_from_slice(shape);
+    Ok(cloned)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedTensorPolicy {
     /// Fail rather than silently omit a tensor this importer cannot quantize.
@@ -45,7 +76,10 @@ impl ModelImportPlan {
         calibrations: &[ActivationCalibration],
         unsupported_policy: UnsupportedTensorPolicy,
     ) -> Result<Self, VqError> {
-        let mut calibration_by_name = BTreeMap::new();
+        let mut calibration_by_name = HashMap::new();
+        calibration_by_name
+            .try_reserve(calibrations.len())
+            .map_err(|_| VqError("could not allocate activation calibration index"))?;
         for calibration in calibrations {
             if calibration.layer_name.trim().is_empty()
                 || calibration.sample_count == 0
@@ -126,8 +160,8 @@ impl ModelImportPlan {
                 calibration_samples,
                 activation_second_moment,
             ) = if quantizable {
-                let codebook = format!("{}.hpsi_vq.codebook", tensor.name);
-                let indices = format!("{}.hpsi_vq.indices", tensor.name);
+                let codebook = generated_tensor_name(&tensor.name, ".hpsi_vq.codebook")?;
+                let indices = generated_tensor_name(&tensor.name, ".hpsi_vq.indices")?;
                 if !generated_names.insert(codebook.clone())
                     || !generated_names.insert(indices.clone())
                     || codebook == indices
@@ -143,7 +177,7 @@ impl ModelImportPlan {
                 }
                 let calibration_samples = match calibration_by_name.get(tensor.name.as_str()) {
                     Some(calibration) => {
-                        if calibration.features as u64 != tensor.shape[1] {
+                        if u64::try_from(calibration.features).ok() != Some(tensor.shape[1]) {
                             return Err(VqError("activation calibration feature count mismatch"));
                         }
                         Some(calibration.sample_count)
@@ -174,9 +208,9 @@ impl ModelImportPlan {
                 (TensorDisposition::PreserveRaw, None, None, None, None)
             };
             tensors.push(PlannedTensor {
-                source_name: tensor.name.clone(),
-                source_dtype: tensor.dtype.clone(),
-                source_shape: tensor.shape.clone(),
+                source_name: clone_plan_text(&tensor.name)?,
+                source_dtype: clone_plan_text(&tensor.dtype)?,
+                source_shape: clone_plan_shape(&tensor.shape)?,
                 disposition,
                 codebook_name,
                 indices_name,
