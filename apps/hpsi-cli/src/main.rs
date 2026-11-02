@@ -1,5 +1,11 @@
 use hpsi_format::{DType, FileSource, ModelReader, ReaderLimits};
+use hpsi_ops::{
+    ActivationCalibration, ModelImportPlan, UnsupportedTensorPolicy, VqConfig,
+    write_model_import_to_hpsi_path, write_model_import_to_hpsi_path_calibrated,
+};
 use serde_json::json;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -17,6 +23,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(usage());
     };
+    if command == "safetensors-import" {
+        return import_safetensors_command(&args);
+    }
     let Some(path) = args.get(1) else {
         return Err(usage());
     };
@@ -190,6 +199,101 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
     Ok(())
 }
 
+fn import_safetensors_command(args: &[String]) -> Result<(), String> {
+    if args.len() < 3 {
+        return Err(usage());
+    }
+    let source_path = &args[1];
+    let destination = &args[2];
+    let mut calibration_dir: Option<&Path> = None;
+    let mut reject_raw = false;
+    let mut index = 3;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--calibration-dir" if index + 1 < args.len() && calibration_dir.is_none() => {
+                calibration_dir = Some(Path::new(&args[index + 1]));
+                index += 2;
+            }
+            "--reject-raw" if !reject_raw => {
+                reject_raw = true;
+                index += 1;
+            }
+            _ => return Err(usage()),
+        }
+    }
+
+    let source = Arc::new(FileSource::open(source_path).map_err(|e| e.to_string())?);
+    let safetensors = hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024)
+        .map_err(|e| e.to_string())?;
+    let policy = if reject_raw {
+        UnsupportedTensorPolicy::Reject
+    } else {
+        UnsupportedTensorPolicy::AllowRawPreservation
+    };
+    let mut calibrations = Vec::new();
+    if let Some(directory) = calibration_dir {
+        let mut files = Vec::new();
+        for entry in fs::read_dir(directory).map_err(|e| {
+            format!("cannot read calibration directory {}: {e}", directory.display())
+        })? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let file_type = entry.file_type().map_err(|e| e.to_string())?;
+            if file_type.is_file()
+                && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+                && entry.file_name() != "manifest.json"
+            {
+                files.push(entry.path());
+            }
+        }
+        files.sort_unstable();
+        for path in files {
+            let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
+            if metadata.len() > 64 * 1024 * 1024 {
+                return Err(format!(
+                    "calibration file exceeds the 64 MiB limit: {}",
+                    path.display()
+                ));
+            }
+            let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let calibration = ActivationCalibration::from_json(&contents)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            calibrations.push(calibration);
+        }
+    }
+
+    let stats = if calibration_dir.is_some() {
+        let plan = ModelImportPlan::build_with_provenance(
+            &safetensors,
+            &calibrations,
+            policy,
+        )
+        .map_err(|e| e.to_string())?;
+        write_model_import_to_hpsi_path_calibrated(
+            &safetensors,
+            &plan,
+            destination,
+            VqConfig::default(),
+            128,
+        )
+        .map_err(|e| e.to_string())?
+    } else {
+        let plan = ModelImportPlan::build(&safetensors, &[], policy)
+            .map_err(|e| e.to_string())?;
+        write_model_import_to_hpsi_path(
+            &safetensors,
+            &plan,
+            destination,
+            VqConfig::default(),
+            128,
+        )
+        .map_err(|e| e.to_string())?
+    };
+    println!("OK: imported {} HPSI tensors", stats.tensor_count);
+    println!("calibration_files: {}", calibrations.len());
+    println!("output: {}", destination);
+    Ok(())
+}
+
 fn inspect_safetensors(path: &str) -> Result<(), String> {
     let source = Arc::new(FileSource::open(path).map_err(|e| e.to_string())?);
     let file =
@@ -230,5 +334,5 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors>".to_owned()
+    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors> | hpsi safetensors-import <model.safetensors> <output.hpsi> [--calibration-dir <dir>] [--reject-raw]".to_owned()
 }
