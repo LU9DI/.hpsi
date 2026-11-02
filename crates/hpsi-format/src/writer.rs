@@ -1,9 +1,9 @@
 use crate::{DType, FileSource, FormatError, ModelReader, ReaderLimits, Result};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -957,7 +957,11 @@ mod streaming_writer_tests {
         );
         assert!(result.is_ok());
         assert_eq!(
-            std::fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
             0o600
         );
         std::fs::remove_file(&destination).unwrap();
