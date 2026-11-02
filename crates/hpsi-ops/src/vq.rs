@@ -650,7 +650,7 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         activation_second_moment: &[f32],
-        read_elements: F,
+        mut read_elements: F,
         emit_row: E,
     ) -> Result<Vec<f32>, VqError>
     where
