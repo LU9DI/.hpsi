@@ -1,5 +1,5 @@
 use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits};
-use hpsi_ops::{matvec_hpsi_rows, VqConfig, VqMatrix, VqMatrixView};
+use hpsi_ops::{VqConfig, VqMatrix, VqMatrixView, matvec_hpsi_rows};
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -126,7 +126,6 @@ fn encoder_rejects_non_finite_weights() {
     weights[3] = f32::NAN;
     assert!(VqMatrix::encode(&weights, 1, 16, VqConfig::default()).is_err());
 }
-
 
 #[test]
 fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
