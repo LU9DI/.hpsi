@@ -269,6 +269,32 @@ fn measure_hpsi_row_window(
     (p50, p95, bytes_read / LATENCY_REPETITIONS as u64, init_ms)
 }
 
+fn benchmark_beam_widths(weights: &[f32]) {
+    let input = make_input(0x4245_414d_5749_4454);
+    println!("beam_width_sweep_codebooks: 4");
+    for beam_width in [1, 2, 4, 8, 16] {
+        let start = Instant::now();
+        let matrix = VqMatrix::encode(
+            weights,
+            ROWS,
+            COLS,
+            VqConfig {
+                codebook_count: 4,
+                beam_width,
+                ..VqConfig::default()
+            },
+        )
+        .expect("valid beam-width sweep matrix");
+        let encode_ms = start.elapsed().as_secs_f64() * 1_000.0;
+        let quality = evaluate_quality(weights, &matrix);
+        let latency = measure_vq(&matrix, &input);
+        println!("beam_{beam_width}_encode_ms: {encode_ms:.3}");
+        println!("beam_{beam_width}_artifact_bytes: {}", matrix.stored_bytes());
+        println!("beam_{beam_width}_heldout_relative_l2: {:.6}", quality.0);
+        println!("beam_{beam_width}_matvec_p50_ms: {:.6}", latency.0);
+    }
+}
+
 fn main() {
     let weights = make_weights();
     let encode_start = Instant::now();
@@ -515,4 +541,5 @@ fn main() {
     println!("latency_samples_per_path: {LATENCY_REPETITIONS}");
     println!("heldout_input_vectors: {QUALITY_SAMPLES}");
     benchmark_row_scaling();
+    benchmark_beam_widths(&weights);
 }
