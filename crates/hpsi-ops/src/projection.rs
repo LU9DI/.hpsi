@@ -52,9 +52,16 @@ pub fn discover_projection_candidates(tensors: &[SafeTensorInfo]) -> Vec<Project
 }
 
 fn has_projection_suffix(name: &str) -> bool {
-    let leaf = name.rsplit('.').next().unwrap_or(name).to_ascii_lowercase();
+    let mut components = name.rsplit('.');
+    let leaf = components.next().unwrap_or(name);
+    let projection = if leaf.eq_ignore_ascii_case("weight") {
+        components.next().unwrap_or(leaf)
+    } else {
+        leaf
+    }
+    .to_ascii_lowercase();
     matches!(
-        leaf.as_str(),
+        projection.as_str(),
         "q_proj"
             | "k_proj"
             | "v_proj"
