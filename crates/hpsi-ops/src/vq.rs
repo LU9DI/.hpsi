@@ -565,10 +565,41 @@ impl VqMatrix {
         config: VqConfig,
         activation_second_moment: &[f32],
         mut read_elements: F,
-        mut emit_row: E,
+        emit_row: E,
     ) -> Result<Vec<f32>, VqError>
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+        E: FnMut(u64, &[u8]) -> Result<(), VqError>,
+    {
+        Self::encode_from_reader_activation_aware_into(
+            rows,
+            cols,
+            config,
+            activation_second_moment,
+            |first, target| {
+                let values = read_elements(first, target.len() as u64)?;
+                if values.len() != target.len() {
+                    return Err(VqError("reader returned an invalid window length"));
+                }
+                target.copy_from_slice(&values);
+                Ok(())
+            },
+            emit_row,
+        )
+    }
+
+    /// Activation-aware streaming encoder using a reusable caller-owned row
+    /// buffer, avoiding per-row Vec allocation in the import path.
+    pub fn encode_from_reader_activation_aware_into<F, E>(
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        activation_second_moment: &[f32],
+        mut read_elements: F,
+        emit_row: E,
+    ) -> Result<Vec<f32>, VqError>
+    where
+        F: FnMut(u64, &mut [f32]) -> Result<(), VqError>,
         E: FnMut(u64, &[u8]) -> Result<(), VqError>,
     {
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
@@ -597,12 +628,12 @@ impl VqMatrix {
                 return Err(VqError("activation importance scale is invalid"));
             }
         }
-        let mut codebook = Self::encode_from_reader_to(
+        let mut codebook = Self::encode_from_reader_into(
             rows,
             cols,
             config,
-            |first, count| {
-                let mut values = read_elements(first, count)?;
+            |first, values| {
+                read_elements(first, values)?;
                 let start = usize::try_from(first)
                     .map_err(|_| VqError("reader offset exceeds address space"))?;
                 for (index, value) in values.iter_mut().enumerate() {
@@ -615,9 +646,9 @@ impl VqMatrix {
                         return Err(VqError("activation-scaled source window is non-finite"));
                     }
                 }
-                Ok(values)
+                Ok(())
             },
-            |row, bytes| emit_row(row, bytes),
+            emit_row,
         )?;
         for centroid in codebook.chunks_exact_mut(GROUP_SIZE) {
             for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
