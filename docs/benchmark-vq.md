@@ -129,3 +129,23 @@ The benchmark writes each HPSI artifact to a temporary file, opens it through `F
 | Index payload bytes per 32-row window | 512 | 1,024 | 1,536 | 2,048 |
 
 The file-backed path returns the same output as the in-memory reference and reads only the index block selected for the requested rows after the codebook has been loaded. This validates the random-access file path end to end, but does not establish cold-storage performance or large-model throughput.
+
+### Additive assignment beam-width sweep — CI run #108
+
+Run: [GitHub Actions #108](https://github.com/LU9DI/.hpsi/actions/runs/41373738330)
+
+The additive encoder was extended with beam search. At each residual stage, it expands partial selector combinations, ranks them by remaining squared L2 error, and retains the best candidates. The same search is used to form residual training samples for subsequent codebooks. The sweep below uses four codebooks and the same deterministic 256 × 256 synthetic weight matrix and held-out input set.
+
+| Beam width | Encode time (ms) | Stored VQ bytes* | Held-out relative L2 | Direct matvec p50 (ms) |
+|---:|---:|---:|---:|---:|
+| 1 | 62.152 | 18,432 | 0.346410 | 0.052026 |
+| 2 | 89.946 | 18,432 | 0.328860 | 0.052035 |
+| 4 | 134.475 | 18,432 | **0.303442** | 0.052051 |
+| 8 | 231.457 | 18,432 | 0.312106 | 0.052071 |
+| 16 | 436.161 | 18,432 | 0.309849 | 0.052084 |
+
+*Codebooks plus packed selectors, excluding HPSI container metadata and block descriptors. Beam width changes encoding work and selected codes, not the number of stored selector bits.
+
+**Decision:** set the default beam width to **4**. It produced the lowest held-out error in this sweep and was about 3.24× faster to encode than width 16. Wider search did not improve this particular training run: codebook fitting is a non-convex process, and each beam width changes the residual distribution used to train later stages. The runtime matvec latency remains essentially unchanged because the beam search is an encoder-only operation; the stored format and direct compute kernel are unchanged.
+
+The default four-codebook run with beam width 4 reported held-out relative L2 error 0.303442, compared with 0.346410 from the earlier greedy additive baseline. This is a measurable improvement, but 0.303 is still a substantial approximation error. These results are from one synthetic matrix and one CI runner; they do not establish transformer-model quality. Next experiments should include repeated seeds, real weight tensors, layer-wise activation-weighted error, and an explicit encode-time budget.
