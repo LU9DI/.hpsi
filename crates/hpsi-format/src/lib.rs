@@ -13,6 +13,7 @@ mod reader;
 mod region;
 mod source;
 mod tensor;
+mod writer;
 
 pub use block::BlockDescriptor;
 pub use error::{FormatError, Result};
@@ -24,3 +25,4 @@ pub use reader::{BlockData, ModelReader, ReaderStats};
 pub use region::{Region, validate_regions};
 pub use source::{FileSource, MemorySource, RandomAccessSource};
 pub use tensor::{DType, TensorDescriptor};
+pub use writer::{ModelWriter, PayloadBlock, TensorInput, WriterStats};
