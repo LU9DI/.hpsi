@@ -973,13 +973,6 @@ impl VqMatrix {
             CODEBOOK_SIZE as u64,
             GROUP_SIZE as u64,
         ]);
-        let codebook_block_length = u64::try_from(codebook_byte_len)
-            .map_err(|_| VqError("VQ codebook payload exceeds format limits"))?;
-        let mut codebook_block_lengths = Vec::new();
-        codebook_block_lengths
-            .try_reserve_exact(1)
-            .map_err(|_| VqError("could not allocate VQ codebook block directory"))?;
-        codebook_block_lengths.push(codebook_block_length);
         let mut index_dimensions = Vec::new();
         index_dimensions
             .try_reserve_exact(1)
@@ -1176,12 +1169,14 @@ impl<'a> HpsiVqExecutor<'a> {
             .checked_mul(codebook_count)
             .and_then(|values| values.checked_mul(std::mem::size_of::<f32>()))
             .ok_or(VqError("HPSI codebook byte length overflow"))?;
+        let expected_codebook_bytes_u64 = u64::try_from(expected_codebook_bytes)
+            .map_err(|_| VqError("HPSI codebook payload exceeds format limits"))?;
         if codebook_tensor.dtype != DType::F32
             || codebook_tensor.rank != 3
             || codebook_tensor.dimensions[0] != codebook_count as u64
             || codebook_tensor.dimensions[1] != CODEBOOK_SIZE as u64
             || codebook_tensor.dimensions[2] != GROUP_SIZE as u64
-            || codebook_tensor.logical_nbytes != expected_codebook_bytes as u64
+            || codebook_tensor.logical_nbytes != expected_codebook_bytes_u64
         {
             return Err(VqError(
                 "HPSI codebook tensor descriptor does not match VQ layout",
@@ -1219,13 +1214,15 @@ impl<'a> HpsiVqExecutor<'a> {
         let expected_index_bytes = rows
             .checked_mul(bytes_per_row)
             .ok_or(VqError("HPSI index tensor size overflow"))?;
+        let expected_index_bytes_u64 = u64::try_from(expected_index_bytes)
+            .map_err(|_| VqError("HPSI index payload exceeds format limits"))?;
         let index_tensor = reader
             .tensor(indices_tensor_id)
             .map_err(|_| VqError("could not locate HPSI index tensor"))?;
         if index_tensor.dtype != DType::Opaque
             || index_tensor.rank != 1
-            || index_tensor.dimensions[0] != expected_index_bytes as u64
-            || index_tensor.logical_nbytes != expected_index_bytes as u64
+            || index_tensor.dimensions[0] != expected_index_bytes_u64
+            || index_tensor.logical_nbytes != expected_index_bytes_u64
         {
             return Err(VqError(
                 "HPSI index tensor descriptor does not match VQ layout",
