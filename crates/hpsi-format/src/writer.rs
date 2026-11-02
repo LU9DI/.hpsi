@@ -906,6 +906,60 @@ mod streaming_writer_tests {
     use crate::MemorySource;
     use std::io::Cursor;
 
+    fn test_output_path(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "hpsi-writer-test-{}-{sequence}-{label}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let destination = directory.join("model.hpsi");
+        (directory, destination)
+    }
+
+    fn one_byte_streaming_tensor() -> Vec<StreamingTensorInput> {
+        vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "payload".into(),
+            dtype: DType::U8,
+            dimensions: vec![1],
+            block_lengths: vec![1],
+        }]
+    }
+
+    #[test]
+    fn path_streaming_callback_failure_does_not_publish_or_leave_temporary_file() {
+        let (directory, destination) = test_output_path("callback-failure");
+        let result = ModelWriter::write_path_streaming(
+            &destination,
+            &one_byte_streaming_tensor(),
+            |_, _, _| Err(FormatError::InvalidBlock("injected callback failure")),
+        );
+        assert!(matches!(result, Err(FormatError::InvalidBlock(_))));
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn path_streaming_does_not_overwrite_existing_destination() {
+        let (directory, destination) = test_output_path("existing-destination");
+        std::fs::write(&destination, b"keep original").unwrap();
+        let result = ModelWriter::write_path_streaming(
+            &destination,
+            &one_byte_streaming_tensor(),
+            |_, _, writer| {
+                writer.write_all(&[42]).map_err(ioerr)?;
+                Ok(1)
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"keep original");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
     #[test]
     fn streaming_writer_roundtrips_and_verifies_block_integrity() {
         let tensors = vec![StreamingTensorInput {
