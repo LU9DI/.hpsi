@@ -731,10 +731,13 @@ impl<W: Write> Write for Crc32cWriter<'_, W> {
                 "streaming block exceeded its declared length",
             ));
         }
-        let allowed = bytes
-            .len()
-            .min(usize::try_from(remaining).unwrap_or(usize::MAX));
-        let written = self.inner.write(&bytes[..allowed])?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > remaining {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "streaming write exceeds its declared block length",
+            ));
+        }
+        let written = self.inner.write(bytes)?;
         for byte in &bytes[..written] {
             self.state ^= u32::from(*byte);
             for _ in 0..8 {
@@ -934,6 +937,18 @@ mod streaming_writer_tests {
         std::fs::create_dir(&directory).unwrap();
         let destination = directory.join("model.hpsi");
         (directory, destination)
+    }
+
+    #[test]
+    fn crc_writer_rejects_a_single_write_that_exceeds_remaining_length() {
+        let mut output = Cursor::new(Vec::new());
+        let mut writer = Crc32cWriter::new(&mut output, 1);
+
+        let error = writer.write(&[1, 2]).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(writer.bytes_written, 0);
+        assert!(output.get_ref().is_empty());
     }
 
     fn one_byte_streaming_tensor() -> Vec<StreamingTensorInput> {
