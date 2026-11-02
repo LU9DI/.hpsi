@@ -420,10 +420,13 @@ fn validate_directories(
     integrity_targets
         .try_reserve(integrity.len())
         .map_err(|_| FormatError::LimitExceeded("integrity index allocation failed"))?;
-    let expected_integrity_count = blocks
-        .len()
-        .checked_add(1)
-        .ok_or(FormatError::ArithmeticOverflow("expected integrity record count"))?;
+    let expected_integrity_count =
+        blocks
+            .len()
+            .checked_add(1)
+            .ok_or(FormatError::ArithmeticOverflow(
+                "expected integrity record count",
+            ))?;
     if integrity.len() != expected_integrity_count {
         return Err(FormatError::InvalidDirectory(
             "integrity directory must cover metadata and every block",
@@ -457,11 +460,12 @@ fn validate_directories(
                 "block checksum index is missing or inconsistent",
             ));
         }
-        let record = integrity
-            .get(expected_index as usize)
-            .ok_or(FormatError::InvalidReference(
-                "block checksum index is out of range",
-            ))?;
+        let record =
+            integrity
+                .get(expected_index as usize)
+                .ok_or(FormatError::InvalidReference(
+                    "block checksum index is out of range",
+                ))?;
         if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
             return Err(FormatError::InvalidReference(
                 "block checksum target mismatch",
@@ -518,7 +522,9 @@ fn validate_reference_cycles(
             continue;
         }
         let mut stack = Vec::new();
-        stack.try_reserve(1).map_err(|_| FormatError::LimitExceeded("reference traversal stack allocation failed"))?;
+        stack.try_reserve(1).map_err(|_| {
+            FormatError::LimitExceeded("reference traversal stack allocation failed")
+        })?;
         stack.push((start, false));
         while let Some((node, exiting)) = stack.pop() {
             if exiting {
@@ -534,7 +540,9 @@ fn validate_reference_cycles(
                 continue;
             }
             color[node] = 1;
-            stack.try_reserve(1).map_err(|_| FormatError::LimitExceeded("reference traversal stack allocation failed"))?;
+            stack.try_reserve(1).map_err(|_| {
+                FormatError::LimitExceeded("reference traversal stack allocation failed")
+            })?;
             stack.push((node, true));
             for dependency in &edges[node] {
                 if color[*dependency] == 1 {
@@ -543,7 +551,9 @@ fn validate_reference_cycles(
                     ));
                 }
                 if color[*dependency] == 0 {
-                    stack.try_reserve(1).map_err(|_| FormatError::LimitExceeded("reference traversal stack allocation failed"))?;
+                    stack.try_reserve(1).map_err(|_| {
+                        FormatError::LimitExceeded("reference traversal stack allocation failed")
+                    })?;
                     stack.push((*dependency, false));
                 }
             }
