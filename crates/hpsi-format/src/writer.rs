@@ -986,4 +986,22 @@ mod streaming_writer_tests {
         let planned_size = u64::from_le_bytes(output.get_ref()[16..24].try_into().unwrap());
         assert_eq!(output.get_ref().len() as u64, planned_size);
     }
+    #[test]
+    fn streaming_writer_rejects_excessive_block_directories_before_writing() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "payload".into(),
+            dtype: DType::U8,
+            dimensions: vec![1],
+            block_lengths: vec![1; MAX_WRITER_BLOCKS + 1],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, _| {
+            panic!("writer must reject the directory before invoking payload callbacks")
+        });
+        assert!(matches!(result, Err(FormatError::LimitExceeded("writer block count"))));
+        assert!(output.get_ref().is_empty());
+    }
+
+
 }
