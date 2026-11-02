@@ -629,3 +629,14 @@ See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](spec
 ### VQ benchmark result
 
 The current synthetic VQ experiment demonstrates direct computation over packed selectors and a tunable quality/encode-time tradeoff. The four-codebook, beam-width-4 configuration reaches 0.303442 held-out relative L2 error with a 19,808-byte HPSI artifact on a 256 × 256 matrix. This error is still too high to claim useful model fidelity. See [the full benchmark report](docs/benchmark-vq.md) for the beam sweep, latency measurements, and limitations.
+
+## Activation calibration input
+
+The CLI can calculate diagonal second moments from a rank-2 F32 activation tensor already stored in an HPSI artifact, reading one payload block at a time:
+
+```bash
+cargo run -p hpsi-cli -- calibrate activations.hpsi 42 > layer-0-calibration.json
+```
+
+This produces a versioned JSON calibration document for the activation-aware VQ API. It does not capture activations from a Transformer itself; the tensor must first be exported into HPSI. See [activation calibration documentation](docs/activation-calibration.md) for the accepted tensor layout, output schema, streaming guarantees, and limitations.
+
