@@ -119,10 +119,14 @@ impl std::error::Error for VqError {}
 
 fn validate_vq_config(config: VqConfig) -> Result<(), VqError> {
     if config.iterations == 0 || config.iterations > MAX_VQ_ITERATIONS {
-        return Err(VqError("k-means iterations exceed supported resource limits"));
+        return Err(VqError(
+            "k-means iterations exceed supported resource limits",
+        ));
     }
     if config.sample_limit == 0 || config.sample_limit > MAX_VQ_TRAINING_SAMPLES {
-        return Err(VqError("VQ training sample limit exceeds supported resource limits"));
+        return Err(VqError(
+            "VQ training sample limit exceeds supported resource limits",
+        ));
     }
     if !(1..=4).contains(&config.codebook_count) {
         return Err(VqError(
@@ -291,9 +295,8 @@ impl VqMatrix {
                 .try_reserve_exact(samples.len())
                 .map_err(|_| VqError("could not allocate VQ residual samples"))?;
             for sample in &samples {
-                residual_samples.push(
-                    beam_search_additive(sample, &codebooks, config.beam_width).0,
-                );
+                residual_samples
+                    .push(beam_search_additive(sample, &codebooks, config.beam_width).0);
             }
             codebooks.push(fit_codebook(
                 &residual_samples,
@@ -752,9 +755,8 @@ impl VqMatrix {
                 .try_reserve_exact(samples.len())
                 .map_err(|_| VqError("could not allocate VQ residual samples"))?;
             for sample in &samples {
-                residual_samples.push(
-                    beam_search_additive(sample, &codebooks, config.beam_width).0,
-                );
+                residual_samples
+                    .push(beam_search_additive(sample, &codebooks, config.beam_width).0);
             }
             // Residual stages reserve a zero centroid. Adding a stage therefore
             // cannot increase per-group reconstruction error in weight space.
