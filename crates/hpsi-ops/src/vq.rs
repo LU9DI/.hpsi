@@ -47,7 +47,9 @@ fn selectors_per_row(cols: usize, codebook_count: usize) -> Result<usize, VqErro
         .checked_mul(codebook_count)
         .ok_or(VqError("selector count per row overflow"))?;
     if selectors % 2 != 0 {
-        return Err(VqError("each matrix row must contain an even selector count"));
+        return Err(VqError(
+            "each matrix row must contain an even selector count",
+        ));
     }
     Ok(selectors)
 }
