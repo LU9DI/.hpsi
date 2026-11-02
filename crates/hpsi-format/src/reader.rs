@@ -431,47 +431,63 @@ fn validate_integrity_coverage(
     blocks: &[BlockDescriptor],
     integrity: &[IntegrityRecord],
 ) -> Result<()> {
-    let expected_count = blocks
-        .len()
-        .checked_add(1)
-        .ok_or(FormatError::ArithmeticOverflow(
-            "expected integrity record count",
-        ))?;
-    if integrity.len() != expected_count {
-        return Err(FormatError::InvalidDirectory(
-            "integrity directory must cover metadata and every block",
-        ));
-    }
-    for (index, record) in integrity.iter().enumerate() {
-        let expected_target = if index == 0 {
-            IntegrityTarget::Metadata
-        } else {
-            IntegrityTarget::BlockPayload((index - 1) as u32)
-        };
-        if record.target != expected_target {
-            return Err(FormatError::InvalidDirectory(
-                "integrity records must cover metadata and blocks in directory order",
-            ));
+    let mut metadata_seen = false;
+    let mut block_seen = Vec::new();
+    block_seen
+        .try_reserve_exact(blocks.len())
+        .map_err(|_| FormatError::LimitExceeded("integrity coverage allocation failed"))?;
+    block_seen.resize(blocks.len(), false);
+
+    for (record_index, record) in integrity.iter().enumerate() {
+        match record.target {
+            IntegrityTarget::Metadata => {
+                if metadata_seen {
+                    return Err(FormatError::InvalidDirectory(
+                        "metadata may have at most one integrity record",
+                    ));
+                }
+                metadata_seen = true;
+            }
+            IntegrityTarget::BlockPayload(block_index) => {
+                let seen = block_seen.get_mut(block_index as usize).ok_or(
+                    FormatError::InvalidReference("integrity block index out of range"),
+                )?;
+                if *seen {
+                    return Err(FormatError::InvalidDirectory(
+                        "a block may have at most one integrity record",
+                    ));
+                }
+                *seen = true;
+                let block = &blocks[block_index as usize];
+                let expected_index = u32::try_from(record_index)
+                    .map_err(|_| FormatError::LimitExceeded("integrity record index"))?;
+                if block.checksum_index != Some(expected_index) {
+                    return Err(FormatError::InvalidReference(
+                        "block checksum index is missing or inconsistent",
+                    ));
+                }
+            }
         }
     }
+
     for (block_index, block) in blocks.iter().enumerate() {
-        let expected_index = u32::try_from(block_index + 1)
-            .map_err(|_| FormatError::LimitExceeded("integrity record index"))?;
-        if block.checksum_index != Some(expected_index) {
-            return Err(FormatError::InvalidReference(
-                "block checksum index is missing or inconsistent",
-            ));
-        }
-        let record =
-            integrity
-                .get(expected_index as usize)
-                .ok_or(FormatError::InvalidReference(
-                    "block checksum index is out of range",
-                ))?;
-        if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
-            return Err(FormatError::InvalidReference(
-                "block checksum target mismatch",
-            ));
+        match block.checksum_index {
+            Some(index) => {
+                let record = integrity.get(index as usize).ok_or(
+                    FormatError::InvalidReference("block checksum index is out of range"),
+                )?;
+                if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
+                    return Err(FormatError::InvalidReference(
+                        "block checksum target mismatch",
+                    ));
+                }
+            }
+            None if block_seen[block_index] => {
+                return Err(FormatError::InvalidReference(
+                    "integrity record is not referenced by its block",
+                ));
+            }
+            None => {}
         }
     }
     Ok(())
