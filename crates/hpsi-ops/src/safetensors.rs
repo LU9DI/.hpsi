@@ -1,5 +1,7 @@
-use hpsi_format::RandomAccessSource;
+use hpsi_format::{RandomAccessSource, WriterStats};
+use crate::{VqConfig, VqError, VqMatrix};
 use serde_json::Value;
+use std::io::{Seek, Write};
 use std::sync::Arc;
 
 /// Bounded, random-access reader for the public Safetensors container layout.
@@ -142,6 +144,33 @@ impl SafeTensorFile {
             tensors,
         })
     }
+    /// Quantize a rank-2 F32/F16/BF16 Safetensors tensor and write it
+    /// directly into an HPSI container. Source reads are bounded to samples
+    /// and one row; packed selectors are spooled to a managed temporary file.
+    pub fn encode_f32_tensor_to_hpsi<W: Write + Seek>(
+        &self,
+        tensor_name: &str,
+        output: &mut W,
+        config: VqConfig,
+        block_rows: usize,
+    ) -> Result<WriterStats, VqError> {
+        let tensor = self.tensors.iter()
+            .find(|tensor| tensor.name == tensor_name)
+            .ok_or(VqError("Safetensors tensor was not found"))?;
+        if tensor.shape.len() != 2 || !matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16") {
+            return Err(VqError("HPSI VQ import requires a rank-2 F32, F16, or BF16 tensor"));
+        }
+        let rows = usize::try_from(tensor.shape[0])
+            .map_err(|_| VqError("Safetensors row count exceeds address space"))?;
+        let cols = usize::try_from(tensor.shape[1])
+            .map_err(|_| VqError("Safetensors column count exceeds address space"))?;
+        VqMatrix::encode_from_reader_to_hpsi_with_temp_spool(
+            output, rows, cols, config, block_rows,
+            |first, count| self.read_f32_elements(tensor_name, first, count)
+                .map_err(|_| VqError("Safetensors source window read failed")),
+        )
+    }
+
     pub fn tensors(&self) -> &[SafeTensorInfo] {
         &self.tensors
     }
