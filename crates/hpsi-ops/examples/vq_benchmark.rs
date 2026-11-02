@@ -1,8 +1,11 @@
-use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits, WriterStats};
+use hpsi_format::{FileSource, MemorySource, ModelReader, ModelWriter, ReaderLimits, WriterStats};
 use hpsi_ops::{HpsiVqExecutor, HpsiVqLayout, VqConfig, VqMatrix};
+use std::fs::{OpenOptions, remove_file};
 use std::hint::black_box;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 const ROWS: usize = 256;
@@ -177,6 +180,38 @@ fn evaluate_quality(weights: &[f32], matrix: &VqMatrix) -> (f64, f64) {
     (relative_l2, f64::from(max_absolute_error))
 }
 
+fn make_hpsi_file_reader(
+    matrix: &VqMatrix,
+    block_rows: usize,
+) -> (ModelReader, WriterStats, PathBuf) {
+    static NEXT_ARTIFACT_ID: AtomicU64 = AtomicU64::new(0);
+    let artifact_id = NEXT_ARTIFACT_ID.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "hpsi-vq-benchmark-{}-{}-{}.hpsi",
+        std::process::id(),
+        matrix.codebook_count(),
+        artifact_id
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create temporary HPSI artifact");
+    let tensors = matrix
+        .to_hpsi_tensors(10, 11, block_rows)
+        .expect("valid file-backed tensor export");
+    let stats = ModelWriter::write(&mut file, &tensors).expect("write file-backed HPSI artifact");
+    file.sync_all().expect("flush file-backed HPSI artifact");
+    drop(file);
+
+    let reader = ModelReader::open(
+        Arc::new(FileSource::open(&path).expect("open file-backed HPSI source")),
+        &ReaderLimits::default(),
+    )
+    .expect("open file-backed HPSI model");
+    (reader, stats, path)
+}
+
 fn make_hpsi_reader(matrix: &VqMatrix, block_rows: usize) -> (ModelReader, WriterStats) {
     let tensors = matrix
         .to_hpsi_tensors(10, 11, block_rows)
@@ -301,6 +336,17 @@ fn main() {
     let hpsi12_latency = measure_hpsi_row_window(&reader12, &matrix12, &input);
     let hpsi16_latency = measure_hpsi_row_window(&reader16, &matrix16, &input);
 
+    // FileSource uses OS random-access reads. These timings are explicitly
+    // warm-cache measurements; the benchmark does not drop the OS page cache.
+    let (file_reader4, _, file_path4) = make_hpsi_file_reader(&matrix4, 32);
+    let (file_reader8, _, file_path8) = make_hpsi_file_reader(&matrix8, 32);
+    let (file_reader12, _, file_path12) = make_hpsi_file_reader(&matrix12, 32);
+    let (file_reader16, _, file_path16) = make_hpsi_file_reader(&matrix16, 32);
+    let file_hpsi4_latency = measure_hpsi_row_window(&file_reader4, &matrix4, &input);
+    let file_hpsi8_latency = measure_hpsi_row_window(&file_reader8, &matrix8, &input);
+    let file_hpsi12_latency = measure_hpsi_row_window(&file_reader12, &matrix12, &input);
+    let file_hpsi16_latency = measure_hpsi_row_window(&file_reader16, &matrix16, &input);
+
     println!("HPSI direct VQ matvec — deterministic synthetic baseline");
     println!("matrix_shape: {ROWS}x{COLS}");
     println!("group_size: 8");
@@ -391,6 +437,28 @@ fn main() {
         "four_hpsi_payload_bytes_per_32_row_window: {}",
         hpsi16_latency.2
     );
+
+    println!("single_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi4_latency.0);
+    println!("single_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi4_latency.1);
+    println!("single_file_hpsi_executor_init_ms: {:.6}", file_hpsi4_latency.3);
+    println!("single_file_hpsi_index_bytes_per_window: {}", file_hpsi4_latency.2);
+    println!("additive_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi8_latency.0);
+    println!("additive_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi8_latency.1);
+    println!("additive_file_hpsi_executor_init_ms: {:.6}", file_hpsi8_latency.3);
+    println!("additive_file_hpsi_index_bytes_per_window: {}", file_hpsi8_latency.2);
+    println!("three_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi12_latency.0);
+    println!("three_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi12_latency.1);
+    println!("three_file_hpsi_executor_init_ms: {:.6}", file_hpsi12_latency.3);
+    println!("three_file_hpsi_index_bytes_per_window: {}", file_hpsi12_latency.2);
+    println!("four_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi16_latency.0);
+    println!("four_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi16_latency.1);
+    println!("four_file_hpsi_executor_init_ms: {:.6}", file_hpsi16_latency.3);
+    println!("four_file_hpsi_index_bytes_per_window: {}", file_hpsi16_latency.2);
+
+    drop((file_reader4, file_reader8, file_reader12, file_reader16));
+    for path in [file_path4, file_path8, file_path12, file_path16] {
+        remove_file(path).expect("remove temporary HPSI benchmark artifact");
+    }
 
     println!(
         "checksum_guard: {:.6}",
