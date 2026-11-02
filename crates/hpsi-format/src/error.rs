@@ -8,10 +8,18 @@ pub enum FormatError {
     Io(String),
     /// The destination was created, but syncing its parent directory failed.
     /// The file may be visible now; crash durability is uncertain.
-    PublicationDurabilityUncertain { path: String, reason: String },
+    PublicationDurabilityUncertain {
+        path: String,
+        reason: String,
+    },
     BadMagic,
-    UnsupportedVersion { major: u16, minor: u16 },
-    UnsupportedFeature { flags: u32 },
+    UnsupportedVersion {
+        major: u16,
+        minor: u16,
+    },
+    UnsupportedFeature {
+        flags: u32,
+    },
     InvalidHeader(&'static str),
     InvalidRegion(&'static str),
     InvalidDirectory(&'static str),
@@ -21,7 +29,10 @@ pub enum FormatError {
     InvalidReference(&'static str),
     ChecksumMismatch,
     LimitExceeded(&'static str),
-    Truncated { expected: usize, actual: usize },
+    Truncated {
+        expected: usize,
+        actual: usize,
+    },
     ArithmeticOverflow(&'static str),
 }
 
@@ -29,7 +40,10 @@ impl fmt::Display for FormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(message) => write!(f, "I/O error: {message}"),
-            Self::PublicationDurabilityUncertain { path, reason } => write!(f, "HPSI destination was published at {path}, but parent-directory sync failed; crash durability is uncertain: {reason}"),
+            Self::PublicationDurabilityUncertain { path, reason } => write!(
+                f,
+                "HPSI destination was published at {path}, but parent-directory sync failed; crash durability is uncertain: {reason}"
+            ),
             Self::BadMagic => f.write_str("invalid HPSI magic"),
             Self::UnsupportedVersion { major, minor } => {
                 write!(f, "unsupported HPSI format version {major}.{minor}")
