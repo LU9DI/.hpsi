@@ -1,5 +1,5 @@
-use hpsi_format::{RandomAccessSource, WriterStats};
 use crate::{VqConfig, VqError, VqMatrix};
+use hpsi_format::{RandomAccessSource, WriterStats};
 use serde_json::Value;
 use std::io::{Seek, Write};
 use std::sync::Arc;
@@ -154,20 +154,30 @@ impl SafeTensorFile {
         config: VqConfig,
         block_rows: usize,
     ) -> Result<WriterStats, VqError> {
-        let tensor = self.tensors.iter()
+        let tensor = self
+            .tensors
+            .iter()
             .find(|tensor| tensor.name == tensor_name)
             .ok_or(VqError("Safetensors tensor was not found"))?;
         if tensor.shape.len() != 2 || !matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16") {
-            return Err(VqError("HPSI VQ import requires a rank-2 F32, F16, or BF16 tensor"));
+            return Err(VqError(
+                "HPSI VQ import requires a rank-2 F32, F16, or BF16 tensor",
+            ));
         }
         let rows = usize::try_from(tensor.shape[0])
             .map_err(|_| VqError("Safetensors row count exceeds address space"))?;
         let cols = usize::try_from(tensor.shape[1])
             .map_err(|_| VqError("Safetensors column count exceeds address space"))?;
         VqMatrix::encode_from_reader_to_hpsi_with_temp_spool(
-            output, rows, cols, config, block_rows,
-            |first, count| self.read_f32_elements(tensor_name, first, count)
-                .map_err(|_| VqError("Safetensors source window read failed")),
+            output,
+            rows,
+            cols,
+            config,
+            block_rows,
+            |first, count| {
+                self.read_f32_elements(tensor_name, first, count)
+                    .map_err(|_| VqError("Safetensors source window read failed"))
+            },
         )
     }
 
@@ -388,7 +398,9 @@ mod tests {
             .collect();
         let header = format!(
             r#"{{"weight":{{"dtype":"F32","shape":[{},{}],"data_offsets":[0,{}]}}}}"#,
-            rows, cols, values.len() * 4
+            rows,
+            cols,
+            values.len() * 4
         );
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
@@ -396,24 +408,29 @@ mod tests {
         for value in &values {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
-        let source = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-            4096,
-        ).unwrap();
+        let source =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
         let config = VqConfig {
             codebook_count: 2,
             sample_limit: 32,
             ..VqConfig::default()
         };
         let mut output = Cursor::new(Vec::new());
-        let stats = source.encode_f32_tensor_to_hpsi("weight", &mut output, config, 2).unwrap();
+        let stats = source
+            .encode_f32_tensor_to_hpsi("weight", &mut output, config, 2)
+            .unwrap();
         assert_eq!(stats.tensor_count, 2);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
-        assert_eq!(reader.read_block(0, 0).unwrap().payload.len(), 2 * 16 * 8 * 4);
+        assert_eq!(
+            reader.read_block(0, 0).unwrap().payload.len(),
+            2 * 16 * 8 * 4
+        );
     }
 
     #[test]
