@@ -12,6 +12,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -24,6 +26,14 @@ const MAX_IMPORT_BLOCK_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_IMPORT_TENSOR_LOGICAL_BYTES: u64 = 1_u64 << 40;
 const MAX_IMPORT_DIRECTORY_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_IMPORT_FILE_BYTES: u64 = 1_u64 << 40;
+
+fn open_import_temporary_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(path)
+}
 
 struct ImportSpool {
     path: PathBuf,
@@ -38,12 +48,7 @@ impl ImportSpool {
                 ".hpsi-import-{}-{sequence}.tmp",
                 std::process::id()
             ));
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match open_import_temporary_file(&path) {
                 Ok(file) => {
                     return Ok(Self {
                         path,
@@ -154,12 +159,7 @@ pub fn write_model_import_to_hpsi_path(
                 ".hpsi-import-{}-{sequence}.tmp",
                 std::process::id()
             ));
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&candidate)
-            {
+            match open_import_temporary_file(&candidate) {
                 Ok(file) => {
                     created = Some((candidate, file));
                     break;
@@ -1056,6 +1056,16 @@ fn import_spool_rejects_writes_beyond_preflight_limit() {
     spool.write_all(&[1, 2, 3, 4]).unwrap();
     assert!(spool.write_all(&[5]).is_err());
     assert_eq!(spool.seek(SeekFrom::End(0)).unwrap(), 4);
+}
+
+#[cfg(unix)]
+#[test]
+fn import_spool_is_created_with_private_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let spool = ImportSpool::create(1024).unwrap();
+    let mode = fs::metadata(&spool.path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
 }
 
 #[test]
