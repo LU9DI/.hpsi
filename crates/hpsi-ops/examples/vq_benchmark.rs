@@ -289,7 +289,10 @@ fn benchmark_beam_widths(weights: &[f32]) {
         let quality = evaluate_quality(weights, &matrix);
         let latency = measure_vq(&matrix, &input);
         println!("beam_{beam_width}_encode_ms: {encode_ms:.3}");
-        println!("beam_{beam_width}_artifact_bytes: {}", matrix.stored_bytes());
+        println!(
+            "beam_{beam_width}_artifact_bytes: {}",
+            matrix.stored_bytes()
+        );
         println!("beam_{beam_width}_heldout_relative_l2: {:.6}", quality.0);
         println!("beam_{beam_width}_matvec_p50_ms: {:.6}", latency.0);
     }
