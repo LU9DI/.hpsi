@@ -213,6 +213,67 @@ impl ModelImportPlan {
     }
 }
 
+
+/// Compact calibration provenance persisted in HPSI metadata. Numeric moments
+/// remain in the import plan for encoding and are deliberately not serialized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrationProvenance {
+    pub source_name: String,
+    pub model_type: String,
+    pub model_revision: Option<String>,
+    pub dataset_sha256: String,
+    pub sample_count: usize,
+    pub features: usize,
+    pub statistic: String,
+}
+
+/// An import plan paired with the calibration provenance required to explain
+/// every activation-aware VQ encoding. The legacy plan type remains unchanged.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibratedModelImportPlan {
+    pub plan: ModelImportPlan,
+    pub calibrations: Vec<CalibrationProvenance>,
+}
+
+impl ModelImportPlan {
+    /// Build a regular import plan and retain compact provenance for every
+    /// supplied calibration without copying its potentially large moment vector.
+    pub fn build_with_provenance(
+        source: &SafeTensorFile,
+        calibrations: &[ActivationCalibration],
+        unsupported_policy: UnsupportedTensorPolicy,
+    ) -> Result<CalibratedModelImportPlan, VqError> {
+        let plan = Self::build(source, calibrations, unsupported_policy)?;
+        let mut provenance = Vec::new();
+        provenance
+            .try_reserve_exact(calibrations.len())
+            .map_err(|_| VqError("could not allocate calibration provenance"))?;
+        for calibration in calibrations {
+            calibration.validate().map_err(|_| {
+                VqError("activation calibration contains invalid values or provenance")
+            })?;
+            provenance.push(CalibrationProvenance {
+                source_name: clone_plan_text(&calibration.layer_name)?,
+                model_type: clone_plan_text(&calibration.model_type)?,
+                model_revision: calibration
+                    .model_revision
+                    .as_deref()
+                    .map(clone_plan_text)
+                    .transpose()?,
+                dataset_sha256: clone_plan_text(&calibration.dataset_sha256)?,
+                sample_count: calibration.sample_count,
+                features: calibration.features,
+                statistic: "diagonal_second_moment".to_owned(),
+            });
+        }
+        provenance.sort_unstable_by(|left, right| left.source_name.cmp(&right.source_name));
+        Ok(CalibratedModelImportPlan {
+            plan,
+            calibrations: provenance,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
