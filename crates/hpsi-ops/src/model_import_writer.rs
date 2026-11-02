@@ -406,11 +406,6 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                         },
                     )?
                 } else {
-                    let mut row_buffer = Vec::new();
-                    row_buffer
-                        .try_reserve_exact(cols)
-                        .map_err(|_| VqError("could not allocate Safetensors row buffer"))?;
-                    row_buffer.resize(cols, 0.0_f32);
                     VqMatrix::encode_from_reader_into(
                         rows,
                         cols,
