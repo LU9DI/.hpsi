@@ -388,14 +388,14 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 let bytes_per_row = selectors_per_row / 2;
                 let codebook = if let Some(importance) = planned.activation_second_moment.as_deref()
                 {
-                    VqMatrix::encode_from_reader_activation_aware_to(
+                    VqMatrix::encode_from_reader_activation_aware_into(
                         rows,
                         cols,
                         config,
                         importance,
-                        |first, count| {
+                        |first, target| {
                             source
-                                .read_f32_elements(&planned.source_name, first, count)
+                                .read_f32_elements_into(&planned.source_name, first, target)
                                 .map_err(|_| VqError("Safetensors VQ source read failed"))
                         },
                         |_, row| {
