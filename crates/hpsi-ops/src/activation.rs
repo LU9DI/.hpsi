@@ -139,10 +139,15 @@ impl ActivationCalibration {
             .and_then(Value::as_object)
             .ok_or(CalibrationError("model provenance is missing"))?;
         let model_type = required_string(model, "model_type")?.to_owned();
-        let model_revision = model
-            .get("revision")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+        let model_revision = match model.get("revision") {
+            Some(Value::String(revision)) => Some(revision.clone()),
+            Some(_) => {
+                return Err(CalibrationError(
+                    "model revision must be a string when present",
+                ));
+            }
+            None => None,
+        };
         let dataset = object
             .get("dataset")
             .and_then(Value::as_object)
@@ -153,7 +158,7 @@ impl ActivationCalibration {
                 "dataset sha256 must be 64 hexadecimal characters",
             ));
         }
-        Ok(Self {
+        let calibration = Self {
             layer_name,
             sample_count,
             features,
@@ -161,7 +166,9 @@ impl ActivationCalibration {
             model_type,
             model_revision,
             dataset_sha256,
-        })
+        };
+        calibration.validate()?;
+        Ok(calibration)
     }
 }
 
@@ -197,6 +204,23 @@ mod tests {
         assert_eq!(calibration.features, 8);
         assert_eq!(calibration.activation_second_moment[0], 0.0);
         assert_eq!(calibration.model_type, "llama");
+    }
+
+    #[test]
+    fn rejects_empty_or_non_string_model_revision() {
+        let valid = document();
+        assert!(
+            ActivationCalibration::from_json(
+                &valid.replace(r#""revision":"abc""#, r#""revision":"  ""#)
+            )
+            .is_err()
+        );
+        assert!(
+            ActivationCalibration::from_json(
+                &valid.replace(r#""revision":"abc""#, r#""revision":42"#)
+            )
+            .is_err()
+        );
     }
 
     #[test]
