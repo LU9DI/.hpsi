@@ -961,14 +961,14 @@ impl VqMatrix {
                     CODEBOOK_SIZE as u64,
                     GROUP_SIZE as u64,
                 ],
-                blocks: payload_blocks(&codebook_bytes, 64 * 1024),
+                blocks: payload_blocks(&codebook_bytes, 64 * 1024)?,
             },
             TensorInput {
                 tensor_id: indices_tensor_id,
                 name: "hpsi.vq.indices".into(),
                 dtype: DType::Opaque,
                 dimensions: vec![self.packed_indices.len() as u64],
-                blocks: payload_blocks(&self.packed_indices, index_block_bytes),
+                blocks: payload_blocks(&self.packed_indices, index_block_bytes)?,
             },
         ])
     }
@@ -1536,13 +1536,26 @@ fn nearest_centroid(vector: &[f32; GROUP_SIZE], centroids: &[[f32; GROUP_SIZE]])
     best_index
 }
 
-fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Vec<PayloadBlock> {
-    bytes
-        .chunks(block_bytes)
-        .map(|chunk| PayloadBlock {
-            bytes: chunk.to_vec(),
-        })
-        .collect()
+fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Result<Vec<PayloadBlock>, VqError> {
+    if block_bytes == 0 {
+        return Err(VqError("payload block size must be non-zero"));
+    }
+    let block_count = (bytes.len() / block_bytes)
+        .checked_add(usize::from(bytes.len() % block_bytes != 0))
+        .ok_or(VqError("payload block count overflow"))?;
+    let mut blocks = Vec::new();
+    blocks
+        .try_reserve_exact(block_count)
+        .map_err(|_| VqError("could not allocate payload block directory"))?;
+    for chunk in bytes.chunks(block_bytes) {
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(chunk.len())
+            .map_err(|_| VqError("could not allocate payload block"))?;
+        payload.extend_from_slice(chunk);
+        blocks.push(PayloadBlock { bytes: payload });
+    }
+    Ok(blocks)
 }
 
 #[cfg(test)]
