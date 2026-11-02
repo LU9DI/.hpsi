@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The formatter may push a commit. Serialize runs per ref so concurrent
+# formatter jobs cannot race while updating the same feature branch.
+concurrency:
+  group: hpsi-ci-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
