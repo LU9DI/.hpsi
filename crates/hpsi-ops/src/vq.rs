@@ -209,17 +209,23 @@ impl VqMatrix {
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
         if activation_second_moment.len() != cols
-            || activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0)
+            || activation_second_moment
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
         {
-            return Err(VqError("activation importance must contain one finite non-negative value per column"));
+            return Err(VqError(
+                "activation importance must contain one finite non-negative value per column",
+            ));
         }
         let mut dimension_scale = [1.0_f32; GROUP_SIZE];
         for (dimension, scale) in dimension_scale.iter_mut().enumerate() {
-            let mean = activation_second_moment.iter()
+            let mean = activation_second_moment
+                .iter()
                 .skip(dimension)
                 .step_by(GROUP_SIZE)
                 .map(|value| f64::from(*value))
-                .sum::<f64>() / (cols / GROUP_SIZE) as f64;
+                .sum::<f64>()
+                / (cols / GROUP_SIZE) as f64;
             *scale = mean.max(1.0e-30).sqrt() as f32;
             if !scale.is_finite() || *scale <= 0.0 {
                 return Err(VqError("activation importance scale is invalid"));
@@ -228,7 +234,8 @@ impl VqMatrix {
 
         let mut matrix = Self::encode_from_reader(rows, cols, config, |first, count| {
             let mut values = read_elements(first, count)?;
-            let start = usize::try_from(first).map_err(|_| VqError("reader offset exceeds address space"))?;
+            let start = usize::try_from(first)
+                .map_err(|_| VqError("reader offset exceeds address space"))?;
             for (index, value) in values.iter_mut().enumerate() {
                 let column = (start + index) % cols;
                 *value *= dimension_scale[column % GROUP_SIZE];
@@ -998,16 +1005,19 @@ mod streaming_encoder_tests {
             sample_limit: 32,
             ..VqConfig::default()
         };
-        let expected = VqMatrix::encode_activation_aware(
-            &weights, rows, cols, config, &importance,
-        ).unwrap();
+        let expected =
+            VqMatrix::encode_activation_aware(&weights, rows, cols, config, &importance).unwrap();
         let actual = VqMatrix::encode_from_reader_activation_aware(
-            rows, cols, config, &importance,
+            rows,
+            cols,
+            config,
+            &importance,
             |first, count| {
                 let start = first as usize;
                 Ok(weights[start..start + count as usize].to_vec())
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(actual.codebook(), expected.codebook());
         assert_eq!(actual.packed_indices(), expected.packed_indices());
     }
