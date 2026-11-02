@@ -274,7 +274,8 @@ impl SafeTensorFile {
         values: &mut [f32],
     ) -> Result<(), SafeTensorError> {
         let element_count = values.len() as u64;
-        let tensor = self.tensor_by_name(name)
+        let tensor = self
+            .tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         if !(1..=2).contains(&tensor.shape.len()) {
             return Err(SafeTensorError::UnsupportedDtype);
@@ -356,7 +357,8 @@ impl SafeTensorFile {
         first_row: u64,
         row_count: u64,
     ) -> Result<Vec<f32>, SafeTensorError> {
-        let tensor = self.tensor_by_name(name)
+        let tensor = self
+            .tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         if tensor.shape.len() != 2 {
             return Err(SafeTensorError::UnsupportedDtype);
