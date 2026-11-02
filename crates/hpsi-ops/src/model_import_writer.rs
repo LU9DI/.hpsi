@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const COPY_CHUNK_BYTES: usize = 64 * 1024;
+const MAX_IMPORT_TRAINING_SAMPLES: usize = 262_144;
+const MAX_IMPORT_VQ_ITERATIONS: usize = 256;
 
 struct ImportSpool {
     path: PathBuf,
@@ -102,6 +104,13 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         ));
     }
 
+    if config.sample_limit == 0 || config.sample_limit > MAX_IMPORT_TRAINING_SAMPLES
+        || config.iterations == 0 || config.iterations > MAX_IMPORT_VQ_ITERATIONS
+        || !(1..=4).contains(&config.codebook_count)
+        || !(1..=256).contains(&config.beam_width) {
+        return Err(VqError("VQ import configuration exceeds supported resource limits"));
+    }
+
     // The plan is a public data structure and may have been constructed or
     // modified by a caller. Revalidate its full source coverage, ordering,
     // disposition fields and generated names before creating temporary files.
@@ -169,7 +178,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     ));
                 }
                 if let Some(moment) = planned.activation_second_moment.as_deref() {
-                    if moment.len() != info.shape[1] as usize
+                    if u64::try_from(moment.len()).ok() != Some(info.shape[1])
                         || moment
                             .iter()
                             .any(|value| !value.is_finite() || *value < 0.0)
@@ -603,4 +612,53 @@ mod tests {
         let stats = write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
         assert_eq!(stats.tensor_count, 3);
     }
+    #[test]
+    fn rejects_forged_plan_with_duplicate_or_unsorted_source_names() {
+        let (source, _, _) = fixture();
+        let mut plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        plan.tensors.swap(0, 1);
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
+
+        let mut plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        plan.tensors[1].source_name = plan.tensors[0].source_name.clone();
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
+    }
+
+    #[test]
+    fn rejects_forged_vq_names_and_unbounded_training_configuration() {
+        let (source, _, _) = fixture();
+        let mut plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        plan.tensors[1].codebook_name = Some("bias".into());
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
+
+        let plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        let mut excessive = config();
+        excessive.sample_limit = usize::MAX;
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, excessive, 1).is_err());
+    }
+
+    #[test]
+    fn rejects_vq_metadata_on_raw_preserved_tensors() {
+        let (source, _, _) = fixture();
+        let mut plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        plan.tensors[0].activation_second_moment = Some(vec![1.0; 2]);
+        plan.tensors[0].calibration_samples = Some(1);
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
+    }
+
 }
