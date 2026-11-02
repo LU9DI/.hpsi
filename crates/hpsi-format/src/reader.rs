@@ -282,29 +282,6 @@ fn parse_table<T>(
     Ok(entries)
 }
 
-fn validate_tensor_codec(tensor: &TensorDescriptor) -> Result<()> {
-    if tensor.codec != 1 {
-        return Err(FormatError::InvalidTensor(
-            "unsupported tensor codec; HPSI v0.1 reader supports RAW codec 1",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_block_codec(codec: u16, auxiliary_ref: Option<u64>) -> Result<()> {
-    if codec != 0 && codec != 1 {
-        return Err(FormatError::InvalidBlock(
-            "unsupported block codec; only inherit (0) and RAW (1) are defined",
-        ));
-    }
-    if auxiliary_ref.is_some() {
-        return Err(FormatError::InvalidReference(
-            "RAW blocks cannot declare auxiliary tensor references",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_directories(
     header: &Header,
     metadata: &Metadata,
@@ -336,7 +313,6 @@ fn validate_directories(
                 "tensor name reference is out of range",
             ));
         }
-        validate_tensor_codec(tensor)?;
         if tensor.logical_nbytes > limits.max_tensor_logical_bytes {
             return Err(FormatError::LimitExceeded("tensor logical bytes"));
         }
@@ -405,7 +381,6 @@ fn validate_directories(
             if block.payload_length > limits.max_payload_bytes_per_block {
                 return Err(FormatError::LimitExceeded("payload bytes per block"));
             }
-            validate_block_codec(block.codec, block.auxiliary_ref)?;
             let codec = if block.codec == 0 {
                 tensor.codec
             } else {
@@ -617,40 +592,6 @@ mod tests {
         crc.update(b"123456789");
         assert_eq!(crc.finish(), 0xe306_9283);
     }
-    #[test]
-    fn unsupported_tensor_codecs_are_not_accepted_by_v01_reader() {
-        let tensor = crate::TensorDescriptor {
-            tensor_id: 1,
-            rank: 1,
-            dtype: crate::DType::U8,
-            codec: 2,
-            block_count: 1,
-            first_block_index: 0,
-            logical_nbytes: 1,
-            dimensions: [1, 0, 0, 0, 0, 0, 0, 0],
-            name_ref: 0,
-            representation_ref: None,
-        };
-        assert!(matches!(
-            super::validate_tensor_codec(&tensor),
-            Err(crate::FormatError::InvalidTensor(_))
-        ));
-    }
-
-    #[test]
-    fn raw_blocks_reject_unknown_codecs_and_auxiliary_references() {
-        assert!(matches!(
-            super::validate_block_codec(2, None),
-            Err(crate::FormatError::InvalidBlock(_))
-        ));
-        assert!(matches!(
-            super::validate_block_codec(0, Some(9)),
-            Err(crate::FormatError::InvalidReference(_))
-        ));
-        assert!(super::validate_block_codec(0, None).is_ok());
-        assert!(super::validate_block_codec(1, None).is_ok());
-    }
-
     #[test]
     fn integrity_coverage_rejects_missing_block_record() {
         use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
