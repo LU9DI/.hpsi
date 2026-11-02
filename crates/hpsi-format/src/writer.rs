@@ -371,7 +371,10 @@ impl ModelWriter {
                 "writer requires an empty output stream",
             ));
         }
-        if tensors.is_empty() || tensors.len() > MAX_WRITER_TENSORS || tensors.len() > u32::MAX as usize {
+        if tensors.is_empty()
+            || tensors.len() > MAX_WRITER_TENSORS
+            || tensors.len() > u32::MAX as usize
+        {
             return Err(FormatError::InvalidTensor(
                 "writer requires a valid non-empty tensor set",
             ));
@@ -472,7 +475,12 @@ impl ModelWriter {
                 .checked_add(integrity_len)
                 .ok_or(FormatError::ArithmeticOverflow("integrity directory"))?,
         )?;
-        let total_directory_bytes = tensor_len.checked_add(block_len).and_then(|v| v.checked_add(integrity_len)).ok_or(FormatError::ArithmeticOverflow("total writer directory length"))?;
+        let total_directory_bytes = tensor_len
+            .checked_add(block_len)
+            .and_then(|v| v.checked_add(integrity_len))
+            .ok_or(FormatError::ArithmeticOverflow(
+                "total writer directory length",
+            ))?;
         if total_directory_bytes > MAX_WRITER_DIRECTORY_BYTES {
             return Err(FormatError::LimitExceeded("writer total directory bytes"));
         }
