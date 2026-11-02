@@ -833,7 +833,9 @@ impl ModelWriter {
             .filter(|value| !value.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         let (temporary_path, temporary_file) = create_temporary_file(parent)?;
-        let _temporary_file_guard = TemporaryFileGuard { path: temporary_path.clone() };
+        let _temporary_file_guard = TemporaryFileGuard {
+            path: temporary_path.clone(),
+        };
         let result = (|| {
             let mut file = temporary_file;
             let stats = Self::write_streaming(&mut file, tensors, |tensor, block, output| {
@@ -876,7 +878,9 @@ impl ModelWriter {
             .unwrap_or_else(|| Path::new("."));
 
         let (temporary_path, temporary_file) = create_temporary_file(parent)?;
-        let _temporary_file_guard = TemporaryFileGuard { path: temporary_path.clone() };
+        let _temporary_file_guard = TemporaryFileGuard {
+            path: temporary_path.clone(),
+        };
 
         let result = (|| {
             let mut file = temporary_file;
