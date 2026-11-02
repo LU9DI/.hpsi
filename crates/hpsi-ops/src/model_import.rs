@@ -60,17 +60,18 @@ fn clone_plan_shape(shape: &[u64]) -> Result<Vec<u64>, VqError> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedTensorPolicy {
-    /// Fail rather than silently omit a tensor this importer cannot quantize.
+    /// Preserve non-VQ tensors byte-for-byte instead of silently omitting them.
     AllowRawPreservation,
     /// Reject the plan if any tensor cannot be VQ-quantized.
     Reject,
 }
 
 impl ModelImportPlan {
-    /// Build a stable plan sorted by source tensor name. Rank-2 floating tensors
-    /// are selected for VQ; all other currently supported Safetensors dtypes
-    /// are either marked for raw preservation or rejected by policy.
-    /// Calibration is matched by exact source tensor name and input feature count.
+    /// Build a stable plan sorted by source tensor name. Only rank-2 F32,
+    /// F16, and BF16 tensors with a feature dimension divisible by the VQ group
+    /// size are selected for VQ; all other supported tensors are preserved raw
+    /// or rejected according to policy. Calibration uses exact source names
+    /// and must match the input feature count.
     pub fn build(
         source: &SafeTensorFile,
         calibrations: &[ActivationCalibration],
