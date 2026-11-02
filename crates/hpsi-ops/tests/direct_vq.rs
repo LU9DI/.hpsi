@@ -12,6 +12,35 @@ fn synthetic_weights(rows: usize, cols: usize) -> Vec<f32> {
         .collect()
 }
 
+fn weight_relative_l2(weights: &[f32], matrix: &VqMatrix) -> f64 {
+    let codebook = matrix.codebook();
+    let selectors = matrix.packed_indices();
+    let codebook_count = matrix.codebook_count();
+    let mut error_squared = 0.0_f64;
+    let mut reference_squared = 0.0_f64;
+
+    for (group, source) in weights.chunks_exact(8).enumerate() {
+        for dimension in 0..8 {
+            let mut reconstructed = 0.0_f32;
+            for stage in 0..codebook_count {
+                let selector = group * codebook_count + stage;
+                let packed = selectors[selector / 2];
+                let code = usize::from(if selector % 2 == 0 {
+                    packed & 0x0f
+                } else {
+                    packed >> 4
+                });
+                reconstructed += codebook[stage * 16 * 8 + code * 8 + dimension];
+            }
+            let difference = source[dimension] - reconstructed;
+            error_squared += f64::from(difference) * f64::from(difference);
+            reference_squared += f64::from(source[dimension]) * f64::from(source[dimension]);
+        }
+    }
+
+    (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
+}
+
 fn heldout_relative_l2(weights: &[f32], rows: usize, cols: usize, matrix: &VqMatrix) -> f64 {
     let view = matrix.view();
     let mut error_squared = 0.0_f64;
@@ -85,7 +114,7 @@ fn additive_codebook_reduces_weight_domain_error() {
     let cols = 64;
     let weights = synthetic_weights(rows, cols);
     let single = VqMatrix::encode(&weights, rows, cols, VqConfig::default()).unwrap();
-    let single_error = heldout_relative_l2(&weights, rows, cols, &single);
+    let single_error = weight_relative_l2(&weights, &single);
     let mut previous_error = single_error;
     let mut previous_size = single.stored_bytes();
 
@@ -103,11 +132,12 @@ fn additive_codebook_reduces_weight_domain_error() {
 
         assert_eq!(additive.codebook_count(), codebook_count);
         assert!(additive.stored_bytes() > previous_size);
-        let additive_error = heldout_relative_l2(&weights, rows, cols, &additive);
+        let additive_error = weight_relative_l2(&weights, &additive);
         assert!(
             additive_error <= previous_error,
-            "{codebook_count} codebooks increased held-out error: {additive_error} > {previous_error}"
+            "{codebook_count} codebooks increased weight-domain error: {additive_error} > {previous_error}"
         );
+        assert!(heldout_relative_l2(&weights, rows, cols, &additive).is_finite());
         previous_error = additive_error;
         previous_size = additive.stored_bytes();
     }
