@@ -151,7 +151,10 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
             .ok_or_else(|| "activation byte offset overflow".to_owned())?;
     }
 
-    if pending_len != 0 || value_count != expected_values || expected_offset != tensor.logical_nbytes {
+    if pending_len != 0
+        || value_count != expected_values
+        || expected_offset != tensor.logical_nbytes
+    {
         return Err("activation payload length does not match tensor shape".to_owned());
     }
     let sample_count = rows as f64;
@@ -185,6 +188,5 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
 }
 
 fn usage() -> String {
-    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id>"
-        .to_owned()
+    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id>".to_owned()
 }

@@ -65,15 +65,22 @@ fn verify_command_reports_crc32c_success() {
 fn calibrate_streams_f32_activations_across_unaligned_blocks() {
     let path = artifact_path();
     let values = [1.0_f32, 2.0, 3.0, 4.0];
-    let bytes: Vec<u8> = values.iter().flat_map(|value| value.to_le_bytes()).collect();
+    let bytes: Vec<u8> = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
     let tensor = TensorInput {
         tensor_id: 7,
         name: "layer.0.input".into(),
         dtype: DType::F32,
         dimensions: vec![2, 2],
         blocks: vec![
-            PayloadBlock { bytes: bytes[..5].to_vec() },
-            PayloadBlock { bytes: bytes[5..].to_vec() },
+            PayloadBlock {
+                bytes: bytes[..5].to_vec(),
+            },
+            PayloadBlock {
+                bytes: bytes[5..].to_vec(),
+            },
         ],
     };
     ModelWriter::write_path(&path, &[tensor]).unwrap();
@@ -85,7 +92,11 @@ fn calibrate_streams_f32_activations_across_unaligned_blocks() {
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let calibration: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(calibration["format"], "hpsi-activation-calibration");
     assert_eq!(calibration["shape"], serde_json::json!([2, 2]));
@@ -119,9 +130,6 @@ fn calibrate_rejects_non_finite_activation_values() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("non-finite F32")
-    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("non-finite F32"));
     std::fs::remove_file(path).unwrap();
 }
-
