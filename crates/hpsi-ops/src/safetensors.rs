@@ -271,7 +271,7 @@ impl SafeTensorFile {
         let byte_count = element_count
             .checked_mul(width)
             .ok_or(SafeTensorError::OutOfBounds)?;
-        let allocation = usize::try_from(byte_count).map_err(|_| SafeTensorError::Allocation)?;
+        usize::try_from(byte_count).map_err(|_| SafeTensorError::Allocation)?;
         let relative_offset = first_element
             .checked_mul(width)
             .ok_or(SafeTensorError::OutOfBounds)?;
