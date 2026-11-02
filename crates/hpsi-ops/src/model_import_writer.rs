@@ -798,14 +798,8 @@ mod tests {
             ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
                 .unwrap();
         let mut output = Cursor::new(Vec::new());
-        let stats = write_model_import_to_hpsi(
-            &source,
-            &plan,
-            &mut output,
-            config(),
-            usize::MAX,
-        )
-        .unwrap();
+        let stats =
+            write_model_import_to_hpsi(&source, &plan, &mut output, config(), usize::MAX).unwrap();
         assert_eq!(stats.tensor_count, 3);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
