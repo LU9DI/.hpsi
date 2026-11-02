@@ -163,8 +163,18 @@ mod tests {
     #[test]
     fn plans_all_tensors_deterministically_and_carries_calibration() {
         let source = source();
-        let first = ModelImportPlan::build(&source, &[calibration()], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
-        let second = ModelImportPlan::build(&source, &[calibration()], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
+        let first = ModelImportPlan::build(
+            &source,
+            &[calibration()],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
+        let second = ModelImportPlan::build(
+            &source,
+            &[calibration()],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
         assert_eq!(first, second);
         assert_eq!(first.tensors.len(), 2);
         assert_eq!(first.tensors[0].source_name, "bias");
@@ -172,7 +182,10 @@ mod tests {
         assert_eq!(first.tensors[1].source_name, "weight");
         assert_eq!(first.tensors[1].disposition, TensorDisposition::QuantizeVq);
         assert_eq!(first.tensors[1].calibration_samples, Some(12));
-        assert_eq!(first.tensors[1].activation_second_moment.as_ref().unwrap(), &vec![1.0; 8]);
+        assert_eq!(
+            first.tensors[1].activation_second_moment.as_ref().unwrap(),
+            &vec![1.0; 8]
+        );
     }
 
     #[test]
@@ -184,6 +197,13 @@ mod tests {
     fn rejects_calibration_feature_mismatch() {
         let mut invalid = calibration();
         invalid.features = 7;
-        assert!(ModelImportPlan::build(&source(), &[invalid], UnsupportedTensorPolicy::AllowRawPreservation).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source(),
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
     }
 }
