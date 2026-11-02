@@ -1,6 +1,10 @@
-use crate::{DType, FormatError, Result};
+use crate::{DType, FileSource, FormatError, ModelReader, ReaderLimits, Result};
 use serde_json::json;
+use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct PayloadBlock {
@@ -119,6 +123,9 @@ impl ModelWriter {
         let integrity_count = block_count
             .checked_add(1)
             .ok_or(FormatError::ArithmeticOverflow("integrity count"))?;
+        if integrity_count > u32::MAX as usize {
+            return Err(FormatError::LimitExceeded("writer integrity record count"));
+        }
         let integrity_len = u64::try_from(integrity_count)
             .map_err(|_| FormatError::LimitExceeded("integrity directory length"))?
             .checked_mul(32)
@@ -327,4 +334,72 @@ fn crc32c(b: &[u8]) -> u32 {
         }
     }
     !c
+}
+
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+impl ModelWriter {
+    /// Write, sync, reopen, and verify an artifact before atomically publishing it.
+    ///
+    /// Publication uses a same-directory hard link and never overwrites an existing
+    /// destination. Filesystems that do not support hard links will return an I/O error.
+    pub fn write_path(path: impl AsRef<Path>, tensors: &[TensorInput]) -> Result<WriterStats> {
+        let destination = path.as_ref();
+        if destination.file_name().is_none() {
+            return Err(FormatError::InvalidRegion("destination must name a file"));
+        }
+        let parent = destination
+            .parent()
+            .filter(|value| !value.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+
+        let (temporary_path, temporary_file) = {
+            let mut created = None;
+            for _ in 0..128 {
+                let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let candidate = parent.join(format!(
+                    ".hpsi-{}-{sequence}.tmp",
+                    std::process::id()
+                ));
+                match OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .open(&candidate)
+                {
+                    Ok(file) => {
+                        created = Some((candidate, file));
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(ioerr(error)),
+                }
+            }
+            created.ok_or(FormatError::Io(
+                "could not allocate a unique temporary output file".into(),
+            ))?
+        };
+
+        let result = (|| {
+            let mut file = temporary_file;
+            let stats = Self::write(&mut file, tensors)?;
+            file.sync_all().map_err(ioerr)?;
+            drop(file);
+
+            let source = Arc::new(FileSource::open(&temporary_path)?);
+            let reader = ModelReader::open(source, &ReaderLimits::default())?;
+            reader.verify_all()?;
+
+            fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
+            #[cfg(unix)]
+            if let Ok(directory) = std::fs::File::open(parent) {
+                let _ = directory.sync_all();
+            }
+            Ok(stats)
+        })();
+
+        let _ = fs::remove_file(&temporary_path);
+        result
+    }
 }

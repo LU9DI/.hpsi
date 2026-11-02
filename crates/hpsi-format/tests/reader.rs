@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use hpsi_format::{MemorySource, ModelReader, ReaderLimits};
+use hpsi_format::{MemorySource, ModelReader, RandomAccessSource, ReaderLimits};
 
 fn fixture() -> Vec<u8> {
     let metadata = br#"{"format":"hpsi","metadata_version":1,"tensor_names":["weights"]}"#;
@@ -95,4 +95,40 @@ fn rejects_invalid_tensor_metadata_reference() {
     let source = Arc::new(MemorySource::new(bytes));
 
     assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+
+struct RecordingSource {
+    inner: MemorySource,
+    reads: Mutex<Vec<(u64, usize)>>,
+}
+
+impl RandomAccessSource for RecordingSource {
+    fn len(&self) -> hpsi_format::Result<u64> {
+        self.inner.len()
+    }
+
+    fn read_exact_at(&self, offset: u64, buffer: &mut [u8]) -> hpsi_format::Result<()> {
+        self.reads.lock().unwrap().push((offset, buffer.len()));
+        self.inner.read_exact_at(offset, buffer)
+    }
+}
+
+#[test]
+fn open_and_selective_read_touch_only_the_requested_payload_range() {
+    let source = Arc::new(RecordingSource {
+        inner: MemorySource::new(fixture()),
+        reads: Mutex::new(Vec::new()),
+    });
+    let reader = ModelReader::open(source.clone(), &ReaderLimits::default()).unwrap();
+
+    let open_reads = source.reads.lock().unwrap().clone();
+    assert!(open_reads.iter().all(|(offset, length)| {
+        let end = offset + *length as u64;
+        end <= 392 || *offset >= 396
+    }));
+
+    source.reads.lock().unwrap().clear();
+    reader.read_block(7, 0).unwrap();
+    assert_eq!(*source.reads.lock().unwrap(), vec![(392, 4)]);
 }

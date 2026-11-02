@@ -1,5 +1,5 @@
 use hpsi_format::{
-    DType, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits, TensorInput,
+    DType, FileSource, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits, TensorInput,
 };
 use std::io::Cursor;
 use std::sync::Arc;
@@ -93,4 +93,37 @@ fn verify_detects_payload_corruption() {
         reader.verify_all(),
         Err(hpsi_format::FormatError::ChecksumMismatch)
     ));
+}
+
+
+#[test]
+fn write_path_verifies_before_publish_and_never_overwrites() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "hpsi-writer-{}-{}.hpsi",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let tensor = TensorInput {
+        tensor_id: 9,
+        name: "atomic.weight".into(),
+        dtype: DType::U8,
+        dimensions: vec![3],
+        blocks: vec![PayloadBlock { bytes: vec![3, 4, 5] }],
+    };
+
+    let stats = ModelWriter::write_path(&path, std::slice::from_ref(&tensor)).unwrap();
+    assert_eq!(stats.payload_bytes, 3);
+    let original = std::fs::read(&path).unwrap();
+
+    assert!(ModelWriter::write_path(&path, &[tensor]).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+
+    let reader = ModelReader::open(
+        Arc::new(FileSource::open(&path).unwrap()),
+        &ReaderLimits::default(),
+    ).unwrap();
+    assert_eq!(reader.verify_all().unwrap(), 2);
+    std::fs::remove_file(path).unwrap();
 }
