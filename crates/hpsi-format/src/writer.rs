@@ -1037,7 +1037,10 @@ mod streaming_writer_tests {
         buffered.verify_all().unwrap();
         streaming.verify_all().unwrap();
         assert_eq!(buffered.metadata.value, streaming.metadata.value);
-        assert_eq!(buffered.metadata.tensor_names, streaming.metadata.tensor_names);
+        assert_eq!(
+            buffered.metadata.tensor_names,
+            streaming.metadata.tensor_names
+        );
         assert_eq!(buffered.header.tensor_count, streaming.header.tensor_count);
         assert_eq!(buffered.header.block_count, streaming.header.block_count);
         assert_eq!(
