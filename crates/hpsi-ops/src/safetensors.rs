@@ -244,6 +244,23 @@ impl SafeTensorFile {
         first_element: u64,
         element_count: u64,
     ) -> Result<Vec<f32>, SafeTensorError> {
+        let count = usize::try_from(element_count).map_err(|_| SafeTensorError::Allocation)?;
+        let mut values = Vec::new();
+        values.try_reserve_exact(count).map_err(|_| SafeTensorError::Allocation)?;
+        values.resize(count, 0.0_f32);
+        self.read_f32_elements_into(name, first_element, &mut values)?;
+        Ok(values)
+    }
+
+    /// Decode a Safetensors window into caller-owned storage. Reusing this
+    /// slice across calls avoids allocating a new F32 vector for every row.
+    pub fn read_f32_elements_into(
+        &self,
+        name: &str,
+        first_element: u64,
+        values: &mut [f32],
+    ) -> Result<(), SafeTensorError> {
+        let element_count = values.len() as u64;
         let tensor = self
             .tensors
             .iter()
@@ -285,13 +302,7 @@ impl SafeTensorFile {
         // third iterator-collection allocation for the converted values.
         // A fixed-size transfer buffer keeps temporary byte memory bounded
         // even when a caller requests a very large row.
-        let element_count_usize =
-            usize::try_from(element_count).map_err(|_| SafeTensorError::Allocation)?;
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(element_count_usize)
-            .map_err(|_| SafeTensorError::Allocation)?;
-        values.resize(element_count_usize, 0.0_f32);
+        let element_count_usize = values.len();
         let element_width = width as usize;
         let elements_per_chunk = (64 * 1024) / element_width;
         let mut bytes = [0_u8; 64 * 1024];
@@ -324,7 +335,7 @@ impl SafeTensorFile {
         if values.iter().any(|value| !value.is_finite()) {
             return Err(SafeTensorError::InvalidTensor);
         }
-        Ok(values)
+        Ok(())
     }
 
     /// Read a row window of a rank-2 floating tensor.
