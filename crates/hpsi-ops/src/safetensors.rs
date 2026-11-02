@@ -193,23 +193,39 @@ impl SafeTensorFile {
         if chunk_bytes == 0 {
             return Err(SafeTensorError::InvalidTensor);
         }
-        let tensor = self.tensors.iter().find(|tensor| tensor.name == name)
+        let tensor = self
+            .tensors
+            .iter()
+            .find(|tensor| tensor.name == name)
             .ok_or(SafeTensorError::InvalidTensor)?;
-        let length = tensor.data_end.checked_sub(tensor.data_start)
+        let length = tensor
+            .data_end
+            .checked_sub(tensor.data_start)
             .ok_or(SafeTensorError::InvalidTensor)?;
-        let absolute_start = self.data_start.checked_add(tensor.data_start)
+        let absolute_start = self
+            .data_start
+            .checked_add(tensor.data_start)
             .ok_or(SafeTensorError::OutOfBounds)?;
         let mut buffer = Vec::new();
-        buffer.try_reserve_exact(chunk_bytes).map_err(|_| SafeTensorError::Allocation)?;
+        buffer
+            .try_reserve_exact(chunk_bytes)
+            .map_err(|_| SafeTensorError::Allocation)?;
         buffer.resize(chunk_bytes, 0);
         let mut copied = 0_u64;
         while copied < length {
             let count = (length - copied).min(chunk_bytes as u64) as usize;
-            let offset = absolute_start.checked_add(copied).ok_or(SafeTensorError::OutOfBounds)?;
-            self.source.read_exact_at(offset, &mut buffer[..count])
+            let offset = absolute_start
+                .checked_add(copied)
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            self.source
+                .read_exact_at(offset, &mut buffer[..count])
                 .map_err(|_| SafeTensorError::Io)?;
-            output.write_all(&buffer[..count]).map_err(|_| SafeTensorError::Io)?;
-            copied = copied.checked_add(count as u64).ok_or(SafeTensorError::OutOfBounds)?;
+            output
+                .write_all(&buffer[..count])
+                .map_err(|_| SafeTensorError::Io)?;
+            copied = copied
+                .checked_add(count as u64)
+                .ok_or(SafeTensorError::OutOfBounds)?;
         }
         Ok(copied)
     }
@@ -348,9 +364,9 @@ mod tests {
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
         bytes.extend_from_slice(header);
         bytes.extend_from_slice(&payload);
-        let file = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096
-        ).unwrap();
+        let file =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
         let mut copied = Vec::new();
         assert_eq!(file.copy_raw_payload("raw", &mut copied, 2).unwrap(), 6);
         assert_eq!(copied, payload);
