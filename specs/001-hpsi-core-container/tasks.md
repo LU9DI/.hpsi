@@ -80,8 +80,8 @@
 - [ ] T054 Add integer-overflow, oversized-count, oversized-dimension, and allocation-limit tests.
 - [x] T055 Add overlapping-region and overlapping-payload tests.
 - [x] T056 Add corrupted metadata/payload CRC32C tests.
-- [ ] T057 Add fuzz target for header parser.
-- [ ] T058 Add fuzz target for complete ModelReader::open.
+- [x] T057 Add fuzz target for header parser.
+- [x] T058 Add fuzz target for complete ModelReader::open.
 - [ ] T059 Run fuzzing for a documented minimum duration and preserve crash regressions as fixtures.
 - [ ] T060 Verify malformed inputs never panic and do not trigger unbounded allocation.
 

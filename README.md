@@ -599,3 +599,8 @@ The initial reader implementation now includes:
 - read statistics and integration fixtures proving that open performs zero payload reads.
 
 The latest CI run for the initial Rust foundation passed on Windows, macOS, and Ubuntu. The expanded directory-reader implementation has now passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy, and tests. Feature 001 remains in progress because writer, CLI commands, fuzzing, and broader adversarial coverage are still missing.
+
+
+## Fuzzing targets
+
+An isolated `fuzz/` package now contains libFuzzer targets for the header parser and complete `ModelReader::open` path (including CRC verification after a successful open). See [fuzz/README.md](fuzz/README.md) for the nightly `cargo-fuzz` commands. The targets are scaffolding only: a sustained fuzz run has not yet been performed, and no fuzz-coverage claim is made.

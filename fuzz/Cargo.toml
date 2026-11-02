@@ -1,0 +1,29 @@
+[package]
+name = "hpsi-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hpsi-format = { path = "../crates/hpsi-format" }
+
+[[bin]]
+name = "fuzz_header"
+path = "fuzz_targets/fuzz_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_model_reader"
+path = "fuzz_targets/fuzz_model_reader.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
