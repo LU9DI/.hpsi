@@ -392,7 +392,12 @@ fn validate_directories(
                 ));
             }
             if let Some(reference) = block.auxiliary_ref {
-                if !lookup.contains_key(&(reference as u32)) || reference > u64::from(u32::MAX) {
+                let target_id = u32::try_from(reference).map_err(|_| {
+                    FormatError::InvalidReference(
+                        "block auxiliary tensor ID exceeds the supported ID width",
+                    )
+                })?;
+                if !lookup.contains_key(&target_id) {
                     return Err(FormatError::InvalidReference(
                         "block auxiliary tensor does not exist",
                     ));
