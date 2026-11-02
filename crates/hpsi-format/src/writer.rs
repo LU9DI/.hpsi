@@ -752,7 +752,11 @@ mod streaming_writer_tests {
         )
         .unwrap();
         reader.verify_all().unwrap();
-        assert_eq!(reader.read_tensor(7).unwrap(), [1_u8, 2, 3, 4, 5, 6]);
+        let mut decoded = Vec::new();
+        for block_id in 0..2 {
+            decoded.extend_from_slice(&reader.read_block(7, block_id).unwrap().payload);
+        }
+        assert_eq!(decoded, [1_u8, 2, 3, 4, 5, 6]);
     }
 
     #[test]
