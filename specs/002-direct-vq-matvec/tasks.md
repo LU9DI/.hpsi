@@ -14,4 +14,6 @@
 - [x] T012 Add a prepared HPSI VQ row executor that caches the shared codebook, validates a contiguous row-aligned block map once, and reads/computes only the requested row subranges on repeated calls.
 - [x] T013 Test partial row windows, repeated calls without codebook reload, and windows crossing index-block boundaries.
 - [x] T014 Precompute input-group/codebook-centroid dot products and reuse them across output rows; validate the optimized kernel against an independent scalar reference for all four rates.
-- [ ] T015 Add a GPU kernel only after pinned CPU profiling and larger matrix-shape benchmarks.
+- [x] T015 Benchmark the optimized kernel across 16, 64, 256, and 1,024 output rows at 256 columns; record the row-count crossover and rate-dependent tradeoffs.
+- [ ] T016 Run pinned local CPU benchmarks on transformer-shaped matrices and file-backed HPSI artifacts.
+- [ ] T017 Add a GPU kernel only after pinned CPU profiling and file-backed I/O measurements.
