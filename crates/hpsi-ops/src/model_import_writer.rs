@@ -356,7 +356,6 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     .map_err(|_| VqError("HPSI model import writer failed"))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,24 +371,33 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
         bytes.extend_from_slice(header);
-        for value in bias { bytes.extend_from_slice(&value.to_le_bytes()); }
-        for value in &weights { bytes.extend_from_slice(&value.to_le_bytes()); }
+        for value in bias {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in &weights {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
         let raw_bias = bias.iter().flat_map(|v| v.to_le_bytes()).collect();
-        let source = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-            4096,
-        ).unwrap();
+        let source =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
         (source, raw_bias, weights)
     }
 
     fn config() -> VqConfig {
-        VqConfig { codebook_count: 2, sample_limit: 32, ..VqConfig::default() }
+        VqConfig {
+            codebook_count: 2,
+            sample_limit: 32,
+            ..VqConfig::default()
+        }
     }
 
     #[test]
     fn writes_raw_and_vq_tensors_into_one_verified_hpsi_artifact() {
         let (source, raw_bias, _) = fixture();
-        let plan = ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
+        let plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
         let mut output = Cursor::new(Vec::new());
         let stats = write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
         assert_eq!(stats.tensor_count, 3);
@@ -397,7 +405,8 @@ mod tests {
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
         assert_eq!(reader.tensor_count(), 3);
         assert_eq!(reader.tensor(0).unwrap().name, "bias");
@@ -416,21 +425,29 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
         bytes.extend_from_slice(header);
-        for index in 0..32 { bytes.extend_from_slice(&((index as f32) * 0.11).cos().to_le_bytes()); }
-        let source = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-            4096,
-        ).unwrap();
-        let plan = ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
+        for index in 0..32 {
+            bytes.extend_from_slice(&((index as f32) * 0.11).cos().to_le_bytes());
+        }
+        let source =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
+        let plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
         let mut output = Cursor::new(Vec::new());
         let stats = write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
         assert_eq!(stats.tensor_count, 4);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
-        let names: Vec<_> = reader.tensors().iter().map(|tensor| tensor.tensor_id).collect();
+        let names: Vec<_> = reader
+            .tensors()
+            .iter()
+            .map(|tensor| tensor.tensor_id)
+            .collect();
         assert_eq!(names, vec![0, 1, 2, 3]);
         assert_eq!(reader.tensor(0).unwrap().name, "a.hpsi_vq.codebook");
         assert_eq!(reader.tensor(2).unwrap().name, "b.hpsi_vq.codebook");
@@ -439,7 +456,9 @@ mod tests {
     #[test]
     fn rejects_plan_that_omits_or_reorders_source_tensors() {
         let (source, _, _) = fixture();
-        let mut plan = ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
+        let mut plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
         plan.tensors.pop();
         let mut output = Cursor::new(Vec::new());
         assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
@@ -457,7 +476,12 @@ mod tests {
             model_revision: None,
             dataset_sha256: "b".repeat(64),
         };
-        let plan = ModelImportPlan::build(&source, &[calibration], UnsupportedTensorPolicy::AllowRawPreservation).unwrap();
+        let plan = ModelImportPlan::build(
+            &source,
+            &[calibration],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
         let mut output = Cursor::new(Vec::new());
         let stats = write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
         assert_eq!(stats.tensor_count, 3);
