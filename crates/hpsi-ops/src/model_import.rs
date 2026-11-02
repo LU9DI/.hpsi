@@ -8,7 +8,7 @@ pub struct ModelImportPlan {
     pub tensors: Vec<PlannedTensor>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlannedTensor {
     pub source_name: String,
     pub source_dtype: String,
@@ -17,6 +17,8 @@ pub struct PlannedTensor {
     pub codebook_name: Option<String>,
     pub indices_name: Option<String>,
     pub calibration_samples: Option<usize>,
+    /// Exact diagonal second moments used by activation-aware VQ encoding.
+    pub activation_second_moment: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +67,7 @@ impl ModelImportPlan {
                     "model contains a tensor unsupported by VQ import policy",
                 ));
             }
-            let (disposition, codebook_name, indices_name, calibration_samples) = if quantizable {
+            let (disposition, codebook_name, indices_name, calibration_samples, activation_second_moment) = if quantizable {
                 let codebook = format!("{}.hpsi_vq.codebook", tensor.name);
                 let indices = format!("{}.hpsi_vq.indices", tensor.name);
                 if !generated_names.insert(codebook.clone())
@@ -107,6 +109,7 @@ impl ModelImportPlan {
                 codebook_name,
                 indices_name,
                 calibration_samples,
+                activation_second_moment,
             });
         }
         Ok(Self { tensors })
