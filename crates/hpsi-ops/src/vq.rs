@@ -303,7 +303,10 @@ impl VqMatrix {
             samples.push(sample_buffer);
         }
 
-        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
+        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::new();
+        codebooks
+            .try_reserve_exact(config.codebook_count)
+            .map_err(|_| VqError("could not allocate VQ codebook directory"))?;
         for stage in 0..config.codebook_count {
             let mut residual_samples = Vec::new();
             residual_samples
@@ -818,7 +821,10 @@ impl VqMatrix {
             samples.push(vector);
         }
 
-        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
+        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::new();
+        codebooks
+            .try_reserve_exact(config.codebook_count)
+            .map_err(|_| VqError("could not allocate VQ codebook directory"))?;
         for stage in 0..config.codebook_count {
             let mut residual_samples = Vec::new();
             residual_samples
@@ -1132,7 +1138,10 @@ impl<'a> HpsiVqExecutor<'a> {
         let codebook_tensor = reader
             .tensor(codebook_tensor_id)
             .map_err(|_| VqError("could not locate HPSI codebook tensor"))?;
-        let expected_codebook_bytes = CODEBOOK_VALUES * codebook_count * 4;
+        let expected_codebook_bytes = CODEBOOK_VALUES
+            .checked_mul(codebook_count)
+            .and_then(|values| values.checked_mul(std::mem::size_of::<f32>()))
+            .ok_or(VqError("HPSI codebook byte length overflow"))?;
         if codebook_tensor.dtype != DType::F32
             || codebook_tensor.rank != 3
             || codebook_tensor.dimensions[0] != codebook_count as u64
@@ -1145,7 +1154,10 @@ impl<'a> HpsiVqExecutor<'a> {
             ));
         }
 
-        let mut codebook_bytes = Vec::with_capacity(expected_codebook_bytes);
+        let mut codebook_bytes = Vec::new();
+        codebook_bytes
+            .try_reserve_exact(expected_codebook_bytes)
+            .map_err(|_| VqError("could not allocate HPSI codebook bytes"))?;
         for block_id in 0..codebook_tensor.block_count {
             let block = reader
                 .read_block(codebook_tensor_id, block_id)
@@ -1155,10 +1167,16 @@ impl<'a> HpsiVqExecutor<'a> {
         if codebook_bytes.len() != expected_codebook_bytes {
             return Err(VqError("HPSI codebook payload length is invalid"));
         }
-        let codebook: Vec<f32> = codebook_bytes
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("four-byte chunk")))
-            .collect();
+        let mut codebook = Vec::new();
+        codebook
+            .try_reserve_exact(expected_codebook_bytes / std::mem::size_of::<f32>())
+            .map_err(|_| VqError("could not allocate decoded HPSI codebook"))?;
+        for chunk in codebook_bytes.chunks_exact(std::mem::size_of::<f32>()) {
+            let bytes: [u8; 4] = chunk
+                .try_into()
+                .map_err(|_| VqError("HPSI codebook contains an incomplete value"))?;
+            codebook.push(f32::from_le_bytes(bytes));
+        }
         if codebook.iter().any(|value| !value.is_finite()) {
             return Err(VqError("HPSI codebook contains non-finite values"));
         }
@@ -1180,7 +1198,12 @@ impl<'a> HpsiVqExecutor<'a> {
             ));
         }
 
-        let mut index_blocks = Vec::with_capacity(index_tensor.block_count as usize);
+        let index_block_count = usize::try_from(index_tensor.block_count)
+            .map_err(|_| VqError("HPSI index block count exceeds address space"))?;
+        let mut index_blocks = Vec::new();
+        index_blocks
+            .try_reserve_exact(index_block_count)
+            .map_err(|_| VqError("could not allocate HPSI index block directory"))?;
         let mut next_row = 0usize;
         for block_id in 0..index_tensor.block_count {
             let descriptor = reader
