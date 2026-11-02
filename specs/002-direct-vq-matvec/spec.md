@@ -21,7 +21,7 @@ The initial exporter emits two tensors:
 1. hpsi.vq.codebook: F32 tensor with shape [codebook_count, 16, 8], where codebook_count is one or two.
 2. hpsi.vq.indices: Opaque byte tensor containing packed 4-bit selectors.
 
-Both tensors are stored through the existing HPSI writer and can be loaded with selective block reads. The first implementation keeps the selected codebook and packed index stream in memory for a matrix-vector call; row-streamed execution is a later optimization.
+Both tensors are stored through the existing HPSI writer and can be loaded with selective block reads. The row-streamed runtime loads the small codebook once and reads only HPSI index blocks intersecting the requested output-row range. Each selected block is computed independently; the complete selector tensor and dense weight matrix are not materialized.
 
 ## Acceptance criteria
 

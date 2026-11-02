@@ -1,5 +1,5 @@
 use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits};
-use hpsi_ops::{VqConfig, VqMatrix, VqMatrixView};
+use hpsi_ops::{matvec_hpsi_rows, VqConfig, VqMatrix, VqMatrixView};
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -125,4 +125,57 @@ fn encoder_rejects_non_finite_weights() {
     let mut weights = vec![0.0_f32; 16];
     weights[3] = f32::NAN;
     assert!(VqMatrix::encode(&weights, 1, 16, VqConfig::default()).is_err());
+}
+
+
+#[test]
+fn row_streamed_hpsi_matvec_reads_only_selected_index_blocks() {
+    let rows = 64;
+    let cols = 64;
+    let weights = synthetic_weights(rows, cols);
+    let matrix = VqMatrix::encode(
+        &weights,
+        rows,
+        cols,
+        VqConfig {
+            codebook_count: 2,
+            ..VqConfig::default()
+        },
+    )
+    .unwrap();
+    let input: Vec<f32> = (0..cols).map(|index| (index as f32 * 0.09).cos()).collect();
+    let mut expected = vec![0.0; rows];
+    matrix.view().matvec(&input, &mut expected).unwrap();
+
+    let tensors = matrix.to_hpsi_tensors(20, 21, 8).unwrap();
+    let mut artifact = Cursor::new(Vec::new());
+    ModelWriter::write(&mut artifact, &tensors).unwrap();
+    let reader = ModelReader::open(
+        Arc::new(MemorySource::new(artifact.into_inner())),
+        &ReaderLimits::default(),
+    )
+    .unwrap();
+
+    let first_row = 16;
+    let mut selected = vec![0.0; 8];
+    matvec_hpsi_rows(
+        &reader,
+        20,
+        21,
+        rows,
+        cols,
+        2,
+        &input,
+        first_row,
+        &mut selected,
+    )
+    .unwrap();
+
+    assert_eq!(selected, expected[first_row..first_row + selected.len()]);
+    let codebook_bytes = 2 * 16 * 8 * 4;
+    let one_index_block_bytes = (cols / 8) * 8;
+    assert_eq!(
+        reader.stats().payload_bytes_read,
+        (codebook_bytes + one_index_block_bytes) as u64
+    );
 }
