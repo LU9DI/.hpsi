@@ -39,10 +39,14 @@ impl BlockDescriptor {
         let reserved = u32_at(bytes, 60);
 
         if flags != 0 || reserved != 0 || layout != 0 {
-            return Err(FormatError::InvalidBlock("unsupported flags, layout, or reserved field"));
+            return Err(FormatError::InvalidBlock(
+                "unsupported flags, layout, or reserved field",
+            ));
         }
         if logical_length == 0 || payload_length == 0 {
-            return Err(FormatError::InvalidBlock("logical and payload lengths must be non-zero"));
+            return Err(FormatError::InvalidBlock(
+                "logical and payload lengths must be non-zero",
+            ));
         }
         if payload_offset.checked_add(payload_length).is_none() {
             return Err(FormatError::ArithmeticOverflow("block payload range"));
@@ -70,8 +74,16 @@ fn u16_at(bytes: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
 }
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("fixed block entry slice"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("fixed block entry slice"),
+    )
 }
 fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("fixed block entry slice"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("fixed block entry slice"),
+    )
 }

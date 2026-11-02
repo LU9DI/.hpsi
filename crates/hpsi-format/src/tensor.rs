@@ -103,29 +103,46 @@ impl TensorDescriptor {
         let representation_raw = u64_at(bytes, 104);
 
         if flags != 0 || reserved0 != 0 || bytes[112..128].iter().any(|byte| *byte != 0) {
-            return Err(FormatError::InvalidTensor("reserved tensor fields must be zero"));
+            return Err(FormatError::InvalidTensor(
+                "reserved tensor fields must be zero",
+            ));
         }
         if codec == 0 || block_count == 0 || logical_nbytes == 0 {
-            return Err(FormatError::InvalidTensor("tensor codec, block count, and logical size must be non-zero"));
+            return Err(FormatError::InvalidTensor(
+                "tensor codec, block count, and logical size must be non-zero",
+            ));
         }
         if dimensions[..usize::from(rank)].contains(&0) {
-            return Err(FormatError::InvalidTensor("active dimensions must be non-zero"));
+            return Err(FormatError::InvalidTensor(
+                "active dimensions must be non-zero",
+            ));
         }
-        if dimensions[usize::from(rank)..].iter().any(|dimension| *dimension != 0) {
+        if dimensions[usize::from(rank)..]
+            .iter()
+            .any(|dimension| *dimension != 0)
+        {
             return Err(FormatError::InvalidTensor("unused dimensions must be zero"));
         }
 
         if dtype != DType::Opaque {
-            let elements = dimensions[..usize::from(rank)].iter().try_fold(1_u64, |product, dimension| {
-                product.checked_mul(*dimension)
-                    .ok_or(FormatError::ArithmeticOverflow("tensor element count"))
-            })?;
-            let bits = elements.checked_mul(dtype.bits_per_element().unwrap_or(0))
+            let elements =
+                dimensions[..usize::from(rank)]
+                    .iter()
+                    .try_fold(1_u64, |product, dimension| {
+                        product
+                            .checked_mul(*dimension)
+                            .ok_or(FormatError::ArithmeticOverflow("tensor element count"))
+                    })?;
+            let bits = elements
+                .checked_mul(dtype.bits_per_element().unwrap_or(0))
                 .ok_or(FormatError::ArithmeticOverflow("tensor logical bit count"))?;
-            let expected_bytes = bits.checked_add(7)
-                .ok_or(FormatError::ArithmeticOverflow("packed tensor byte rounding"))? / 8;
+            let expected_bytes = bits.checked_add(7).ok_or(FormatError::ArithmeticOverflow(
+                "packed tensor byte rounding",
+            ))? / 8;
             if expected_bytes != logical_nbytes {
-                return Err(FormatError::InvalidTensor("logical_nbytes disagrees with dtype and dimensions"));
+                return Err(FormatError::InvalidTensor(
+                    "logical_nbytes disagrees with dtype and dimensions",
+                ));
             }
         }
 
@@ -148,8 +165,16 @@ fn u16_at(bytes: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
 }
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("fixed tensor entry slice"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("fixed tensor entry slice"),
+    )
 }
 fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("fixed tensor entry slice"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("fixed tensor entry slice"),
+    )
 }

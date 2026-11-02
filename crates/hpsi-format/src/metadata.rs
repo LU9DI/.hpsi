@@ -17,12 +17,18 @@ impl Metadata {
         }
         let value: Value = serde_json::from_slice(bytes)
             .map_err(|_| FormatError::InvalidMetadata("metadata is not valid UTF-8 JSON"))?;
-        let object = value.as_object()
-            .ok_or(FormatError::InvalidMetadata("metadata root must be an object"))?;
+        let object = value.as_object().ok_or(FormatError::InvalidMetadata(
+            "metadata root must be an object",
+        ))?;
 
         for key in object.keys() {
-            if !matches!(key.as_str(), "format" | "metadata_version" | "tensor_names" | "model" | "producer" | "user") {
-                return Err(FormatError::InvalidMetadata("unknown top-level metadata property"));
+            if !matches!(
+                key.as_str(),
+                "format" | "metadata_version" | "tensor_names" | "model" | "producer" | "user"
+            ) {
+                return Err(FormatError::InvalidMetadata(
+                    "unknown top-level metadata property",
+                ));
             }
         }
 
@@ -33,8 +39,9 @@ impl Metadata {
             return Err(FormatError::InvalidMetadata("metadata_version must be 1"));
         }
 
-        let names = object.get("tensor_names").and_then(Value::as_array)
-            .ok_or(FormatError::InvalidMetadata("tensor_names must be an array"))?;
+        let names = object.get("tensor_names").and_then(Value::as_array).ok_or(
+            FormatError::InvalidMetadata("tensor_names must be an array"),
+        )?;
         if names.len() > limits.max_tensors as usize {
             return Err(FormatError::LimitExceeded("metadata tensor name count"));
         }
@@ -43,13 +50,17 @@ impl Metadata {
         seen.try_reserve(names.len())
             .map_err(|_| FormatError::LimitExceeded("tensor name index allocation failed"))?;
         let mut tensor_names = Vec::new();
-        tensor_names.try_reserve_exact(names.len())
+        tensor_names
+            .try_reserve_exact(names.len())
             .map_err(|_| FormatError::LimitExceeded("tensor name allocation failed"))?;
         for item in names {
-            let name = item.as_str()
+            let name = item
+                .as_str()
                 .ok_or(FormatError::InvalidMetadata("tensor name must be a string"))?;
             if name.is_empty() || name.contains('\0') || name.len() > limits.max_tensor_name_bytes {
-                return Err(FormatError::InvalidMetadata("tensor name is empty, contains NUL, or exceeds limit"));
+                return Err(FormatError::InvalidMetadata(
+                    "tensor name is empty, contains NUL, or exceeds limit",
+                ));
             }
             if !seen.insert(name.to_owned()) {
                 return Err(FormatError::InvalidMetadata("duplicate tensor name"));
@@ -82,6 +93,9 @@ impl Metadata {
             }
         }
 
-        Ok(Self { tensor_names, value })
+        Ok(Self {
+            tensor_names,
+            value,
+        })
     }
 }

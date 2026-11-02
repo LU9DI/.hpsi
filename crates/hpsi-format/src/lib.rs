@@ -9,8 +9,8 @@ mod header;
 mod integrity;
 mod limits;
 mod metadata;
-mod region;
 mod reader;
+mod region;
 mod source;
 mod tensor;
 
@@ -20,7 +20,7 @@ pub use header::{HEADER_SIZE, Header};
 pub use integrity::{IntegrityRecord, IntegrityTarget};
 pub use limits::ReaderLimits;
 pub use metadata::Metadata;
-pub use region::{Region, validate_regions};
 pub use reader::{BlockData, ModelReader, ReaderStats};
+pub use region::{Region, validate_regions};
 pub use source::{FileSource, MemorySource, RandomAccessSource};
 pub use tensor::{DType, TensorDescriptor};
