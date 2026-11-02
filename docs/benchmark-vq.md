@@ -38,3 +38,26 @@ Run: [GitHub Actions #51](https://github.com/LU9DI/.hpsi/actions/runs/4136973595
 **Interpretation:** the 49.35× figure includes the HPSI header, metadata, directories, codebook, and packed selectors. Despite that storage result, the relative L2 error is high and the direct CPU kernel is approximately 31% slower at p50 than the dense F32 reference in this run. The benchmark ran on a GitHub-hosted Ubuntu runner; its exact CPU model and power state were not recorded, so the latency numbers are illustrative rather than portable performance claims.
 
 The result argues against treating 4-bit selectors per 8-weight group as a final representation. The next experiment should compare additive/residual codebooks (two 4-bit selectors per group), then measure quality and latency again before considering GPU work.
+
+
+## Additive residual-codebook comparison — CI run #53
+
+Run: [GitHub Actions #53](https://github.com/LU9DI/.hpsi/actions/runs/41370076016)
+
+Both modes used the same deterministic 256 × 256 synthetic matrix and the same 16 held-out input vectors.
+
+| Metric | Single codebook | Additive (2 codebooks) |
+|---|---:|---:|
+| Selector bits per 8-weight group | 4 | 8 |
+| Encode time | 6.848 ms | 13.828 ms |
+| Codebook + selector bytes | 4,608 | 9,216 |
+| Complete HPSI artifact | 5,312 bytes | 9,920 bytes |
+| Artifact compression vs. dense F32 | 49.35× | 26.43× |
+| Held-out relative L2 error | 0.763030 | 0.589400 |
+| Held-out maximum absolute error | 1.384189 | 1.202029 |
+| Direct matvec p50 | 0.048693 ms | 0.098207 ms |
+| Direct matvec p95 | 0.048833 ms | 0.104376 ms |
+
+Dense F32 reference in the same run: p50 **0.043665 ms**, p95 **0.049184 ms**. The additive mode reduces relative L2 error by approximately **22.7%** versus single-codebook mode, at the cost of roughly halving the compression ratio and more than doubling direct-matvec p50 latency versus dense F32.
+
+The additive codebook reserves a zero residual centroid, so its weight-domain per-group reconstruction error cannot exceed the single-codebook residual error. The held-out matrix-vector error also improved in this sample, but remains large (0.589 relative L2). The experiment therefore supports further research into residual/additive representations, not a claim of acceptable neural-network quality.

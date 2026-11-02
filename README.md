@@ -585,7 +585,7 @@ The Rust workspace on `feat/hpsi-core-container` now contains a first end-to-end
 
 **Validation status:** the reader, RAW writer, verified path-publishing API, CLI, and direct VQ operator have passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy with warnings denied, and workspace tests. The two libFuzzer targets also compile successfully in the nightly fuzz-smoke job.
 
-**Still outstanding:** sustained fuzz runs, additional resource-limit/allocation edge cases, held-out VQ quality evaluation, reproducible CPU benchmarks, row-streamed execution, residual/additive quantization, and GPU kernels. The container writer is intentionally RAW-only; the VQ representation is a separate experimental compute layer and makes no production-quality claim.
+**Still outstanding:** sustained fuzz runs, additional resource-limit/allocation edge cases, row-streamed execution, broader model-quality evaluation, and GPU kernels. The container writer is intentionally RAW-only; the VQ representation is a separate experimental compute layer and makes no production-quality claim.
 
 
 ### Feature 001 — reader implementation update
@@ -613,16 +613,16 @@ An isolated `fuzz/` package contains libFuzzer targets for the header parser and
 
 The new `hpsi-ops` crate contains the first compute primitive over a compressed representation:
 
-- Groups of eight adjacent F32 weights are represented by a 4-bit selector into a shared 16-entry codebook.
-- Two selectors are packed into each byte; the codebook is stored once as a 16 × 8 F32 tensor.
+- Groups of eight adjacent F32 weights use a shared 16-entry codebook of 8-value F32 centroids.
+- Single-codebook mode uses 4 selector bits per group (0.5 bits/weight). Additive mode uses a primary and residual codebook with 8 selector bits per group (1 bit/weight).
 - `VqMatrixView::matvec` computes directly from packed selectors and codebook values. It does not reconstruct a dense weight matrix.
 - `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; an integration test reads those blocks back and runs the same operation.
 
-The selector stream has a theoretical cost of 0.5 bits per weight before codebook and container overhead. That is a storage property of this experimental representation, **not** evidence of acceptable model quality. Held-out numerical evaluation, end-to-end artifact accounting, and reproducible latency benchmarks are still required before comparing it with dense or established quantized runtimes.
+The selector stream costs 0.5 bits/weight in single-codebook mode or 1 bit/weight in additive mode, before codebooks and container overhead. In the current synthetic benchmark, additive quantization improves relative L2 error from 0.763 to 0.589, but that error remains high and the direct CPU kernel is slower than dense F32. These are experimental measurements, **not** evidence of production model quality.
 
 See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](specs/002-direct-vq-matvec/plan.md), and [tasks](specs/002-direct-vq-matvec/tasks.md).
 
 
-### Initial VQ benchmark result
+### VQ benchmark result
 
-The first deterministic 256 × 256 synthetic benchmark measured **49.35× smaller than dense F32 at the HPSI-artifact level**, but its held-out relative L2 error was **0.763** and its median direct-matvec latency was slower than the dense baseline (0.0397 ms vs. 0.0303 ms). This confirms that low storage cost alone is not sufficient: the 4-bit/group representation is a useful experimental baseline, not yet a viable quality/performance tradeoff. See [the full benchmark report](docs/benchmark-vq.md).
+On the deterministic 256 × 256 synthetic benchmark, single-codebook mode produced a **5,312-byte HPSI artifact (49.35× smaller than dense F32)** with relative L2 error 0.763. Additive mode produced a **9,920-byte artifact (26.43× smaller)** and reduced relative L2 error to 0.589, but its p50 matvec was about 2.25× slower than dense F32. Neither mode is yet a good quality/performance tradeoff. See [the full benchmark report](docs/benchmark-vq.md).
