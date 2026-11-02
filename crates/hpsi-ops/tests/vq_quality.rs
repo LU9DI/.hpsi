@@ -128,7 +128,6 @@ fn additive_codebook_count_does_not_regress_held_out_output_error() {
     );
 }
 
-
 #[test]
 fn activation_aware_quantization_handles_divergent_feature_importance() {
     let (rows, cols) = (24, 64);
@@ -149,10 +148,8 @@ fn activation_aware_quantization_handles_divergent_feature_importance() {
     };
 
     let ordinary = VqMatrix::encode(&weights, rows, cols, config).expect("ordinary VQ");
-    let calibrated = VqMatrix::encode_activation_aware(
-        &weights, rows, cols, config, &moments,
-    )
-    .expect("activation-aware VQ");
+    let calibrated = VqMatrix::encode_activation_aware(&weights, rows, cols, config, &moments)
+        .expect("activation-aware VQ");
 
     let weighted_inputs: Vec<Vec<f32>> = (0..16)
         .map(|sample| {
