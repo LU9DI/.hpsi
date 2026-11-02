@@ -437,14 +437,15 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 let codebook_start = spool
                     .seek(SeekFrom::End(0))
                     .map_err(|_| VqError("could not position codebook spool"))?;
-                let mut codebook_bytes = Vec::with_capacity(codebook.len() * 4);
+                let codebook_len = u64::try_from(codebook.len())
+                    .ok()
+                    .and_then(|count| count.checked_mul(4))
+                    .ok_or(VqError("VQ codebook byte length overflow"))?;
                 for value in &codebook {
-                    codebook_bytes.extend_from_slice(&value.to_le_bytes());
+                    spool
+                        .write_all(&value.to_le_bytes())
+                        .map_err(|_| VqError("could not spool VQ codebook"))?;
                 }
-                spool
-                    .write_all(&codebook_bytes)
-                    .map_err(|_| VqError("could not spool VQ codebook"))?;
-                let codebook_len = codebook_bytes.len() as u64;
                 if codebook_len == 0 {
                     return Err(VqError("VQ codebook is empty"));
                 }
