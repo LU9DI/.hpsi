@@ -172,7 +172,10 @@ fn main() {
     println!("additive_direct_matvec_p50_ms: {:.6}", vq8_latency.0);
     println!("additive_direct_matvec_p95_ms: {:.6}", vq8_latency.1);
 
-    println!("checksum_guard: {:.6}", dense_latency.2 + vq4_latency.2 + vq8_latency.2);
+    println!(
+        "checksum_guard: {:.6}",
+        dense_latency.2 + vq4_latency.2 + vq8_latency.2
+    );
     println!("latency_samples_per_path: {LATENCY_REPETITIONS}");
     println!("heldout_input_vectors: {QUALITY_SAMPLES}");
 }

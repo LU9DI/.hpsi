@@ -55,10 +55,14 @@ impl VqMatrix {
             .checked_mul(cols)
             .ok_or(VqError("matrix element count overflow"))?;
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 || weights.len() != expected {
-            return Err(VqError("matrix shape must be non-zero, group-aligned, and match weights"));
+            return Err(VqError(
+                "matrix shape must be non-zero, group-aligned, and match weights",
+            ));
         }
         if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError("k-means iterations and sample limit must be non-zero"));
+            return Err(VqError(
+                "k-means iterations and sample limit must be non-zero",
+            ));
         }
         if !(1..=2).contains(&config.codebook_count) {
             return Err(VqError("only one or two additive codebooks are supported"));
@@ -183,7 +187,9 @@ impl VqMatrix {
             return Err(VqError("codebook tensor ID must precede index tensor ID"));
         }
         if block_bytes < 4 || block_bytes % 4 != 0 {
-            return Err(VqError("block size must be a positive multiple of four bytes"));
+            return Err(VqError(
+                "block size must be a positive multiple of four bytes",
+            ));
         }
         let mut codebook_bytes = Vec::with_capacity(self.codebook.len() * 4);
         for value in &self.codebook {
@@ -253,7 +259,9 @@ impl<'a> VqMatrixView<'a> {
             groups
         };
         if packed_indices.len() != expected_indices {
-            return Err(VqError("packed index stream length does not match matrix shape"));
+            return Err(VqError(
+                "packed index stream length does not match matrix shape",
+            ));
         }
         Ok(Self {
             rows,
@@ -290,8 +298,7 @@ impl<'a> VqMatrixView<'a> {
 
                 let input_offset = group * GROUP_SIZE;
                 let primary_offset = primary_code * GROUP_SIZE;
-                let residual_offset = residual_code
-                    .map(|code| CODEBOOK_VALUES + code * GROUP_SIZE);
+                let residual_offset = residual_code.map(|code| CODEBOOK_VALUES + code * GROUP_SIZE);
 
                 for dimension in 0..GROUP_SIZE {
                     let input_value = input[input_offset + dimension];

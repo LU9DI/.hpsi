@@ -46,7 +46,10 @@ fn direct_matvec_from_hpsi_payloads_matches_in_memory_additive_view() {
         &weights,
         rows,
         cols,
-        VqConfig { codebook_count: 2, ..VqConfig::default() },
+        VqConfig {
+            codebook_count: 2,
+            ..VqConfig::default()
+        },
     )
     .unwrap();
     let input: Vec<f32> = (0..cols).map(|index| (index as f32 * 0.11).sin()).collect();
@@ -86,7 +89,10 @@ fn additive_codebook_reduces_weight_domain_error() {
         &weights,
         rows,
         cols,
-        VqConfig { codebook_count: 2, ..VqConfig::default() },
+        VqConfig {
+            codebook_count: 2,
+            ..VqConfig::default()
+        },
     )
     .unwrap();
 
