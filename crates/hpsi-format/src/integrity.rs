@@ -1,6 +1,6 @@
 use crate::{FormatError, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntegrityTarget {
     Metadata,
     BlockPayload(u32),
