@@ -514,6 +514,9 @@ impl ModelWriter {
         let file_size = payload_off
             .checked_add(payload_bytes)
             .ok_or(FormatError::ArithmeticOverflow("file size"))?;
+        if file_size > MAX_WRITER_FILE_BYTES {
+            return Err(FormatError::LimitExceeded("writer maximum file size"));
+        }
 
         let mut tensor_dir = Vec::new();
         tensor_dir
