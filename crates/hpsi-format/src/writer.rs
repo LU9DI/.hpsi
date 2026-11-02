@@ -49,6 +49,8 @@ const MAX_WRITER_BLOCKS: usize = 1_000_000;
 const MAX_WRITER_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WRITER_DIRECTORY_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_WRITER_BLOCK_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_WRITER_FILE_BYTES: u64 = 1_u64 << 40;
+const MAX_WRITER_TENSOR_LOGICAL_BYTES: u64 = 1_u64 << 40;
 
 impl ModelWriter {
     /// Stream tensor payload blocks directly to the output.
@@ -132,6 +134,13 @@ impl ModelWriter {
             block_count = block_count
                 .checked_add(tensor.block_lengths.len())
                 .ok_or(FormatError::ArithmeticOverflow("block count"))?;
+            let tensor_logical_bytes = tensor.block_lengths.iter().try_fold(0_u64, |sum, length| {
+                sum.checked_add(*length)
+                    .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
+            })?;
+            if tensor_logical_bytes > MAX_WRITER_TENSOR_LOGICAL_BYTES {
+                return Err(FormatError::LimitExceeded("writer tensor logical bytes"));
+            }
             for length in &tensor.block_lengths {
                 if *length > MAX_WRITER_BLOCK_PAYLOAD_BYTES {
                     return Err(FormatError::LimitExceeded("writer payload bytes per block"));
@@ -220,6 +229,9 @@ impl ModelWriter {
         let file_size = payload_off
             .checked_add(payload_bytes)
             .ok_or(FormatError::ArithmeticOverflow("file size"))?;
+        if file_size > MAX_WRITER_FILE_BYTES {
+            return Err(FormatError::LimitExceeded("writer maximum file size"));
+        }
 
         let mut tensor_dir = Vec::new();
         tensor_dir
@@ -419,6 +431,13 @@ impl ModelWriter {
             block_count = block_count
                 .checked_add(t.blocks.len())
                 .ok_or(FormatError::ArithmeticOverflow("block count"))?;
+            let tensor_logical_bytes = t.blocks.iter().try_fold(0_u64, |sum, block| {
+                sum.checked_add(block.bytes.len() as u64)
+                    .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
+            })?;
+            if tensor_logical_bytes > MAX_WRITER_TENSOR_LOGICAL_BYTES {
+                return Err(FormatError::LimitExceeded("writer tensor logical bytes"));
+            }
             for b in &t.blocks {
                 if b.bytes.is_empty() {
                     return Err(FormatError::InvalidBlock("empty payload block"));
