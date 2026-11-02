@@ -719,13 +719,14 @@ fn validate_acyclic_references(
     Ok(())
 }
 
-
 #[cfg(test)]
 fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
     let mut color = vec![0_u8; edges.len()];
     let mut stack: Vec<(usize, usize)> = Vec::new();
     for start in 0..edges.len() {
-        if color[start] != 0 { continue; }
+        if color[start] != 0 {
+            continue;
+        }
         color[start] = 1;
         stack.push((start, 0));
         while let Some((node, next_edge)) = stack.last_mut() {
@@ -738,12 +739,21 @@ fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
             let dependency = edges[*node][*next_edge];
             *next_edge += 1;
             if dependency >= edges.len() {
-                return Err(FormatError::InvalidReference("reference graph target is out of range"));
+                return Err(FormatError::InvalidReference(
+                    "reference graph target is out of range",
+                ));
             }
             match color[dependency] {
-                1 => return Err(FormatError::InvalidReference("cyclic auxiliary tensor references")),
+                1 => {
+                    return Err(FormatError::InvalidReference(
+                        "cyclic auxiliary tensor references",
+                    ));
+                }
                 2 => {}
-                _ => { color[dependency] = 1; stack.push((dependency, 0)); }
+                _ => {
+                    color[dependency] = 1;
+                    stack.push((dependency, 0));
+                }
             }
         }
     }
