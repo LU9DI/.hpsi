@@ -887,14 +887,19 @@ mod streaming_writer_tests {
                 writer.write_all(&[7, 9]).map_err(ioerr)?;
                 Ok(2)
             },
-        ).unwrap();
+        )
+        .unwrap();
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
         assert_eq!(reader.metadata.value["producer"]["name"], "hpsi-import");
-        assert_eq!(reader.metadata.value["model"]["source_format"], "safetensors");
+        assert_eq!(
+            reader.metadata.value["model"]["source_format"],
+            "safetensors"
+        );
         assert_eq!(reader.metadata.value["user"]["source_sha256"], "deadbeef");
         assert_eq!(reader.metadata.tensor_names, vec!["layer.weight"]);
     }
@@ -910,7 +915,9 @@ mod streaming_writer_tests {
         }];
         let mut output = Cursor::new(Vec::new());
         let result = ModelWriter::write_streaming_with_metadata(
-            &mut output, &tensors, Some(json!({"arbitrary": true})),
+            &mut output,
+            &tensors,
+            Some(json!({"arbitrary": true})),
             |_, _, writer| {
                 writer.write_all(&[1]).map_err(ioerr)?;
                 Ok(1)
