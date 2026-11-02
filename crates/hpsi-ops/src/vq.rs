@@ -500,9 +500,12 @@ impl<'a> HpsiVqExecutor<'a> {
             let byte_len = selected_rows
                 .checked_mul(self.bytes_per_row)
                 .ok_or(VqError("selected HPSI index length overflow"))?;
+            let byte_end = byte_start
+                .checked_add(byte_len)
+                .ok_or(VqError("selected HPSI index range overflow"))?;
             let selected_indices = payload
                 .payload
-                .get(byte_start..byte_start + byte_len)
+                .get(byte_start..byte_end)
                 .ok_or(VqError("selected HPSI index range exceeds block payload"))?;
 
             let view = VqMatrixView::new(
