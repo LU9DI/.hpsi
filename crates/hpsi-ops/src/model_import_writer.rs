@@ -1266,7 +1266,10 @@ mod tests {
             1,
         )
         .unwrap();
-        assert_eq!(stats.tensor_count, u32::try_from(RAW_TENSORS + VQ_TENSORS * 2).unwrap());
+        assert_eq!(
+            stats.tensor_count,
+            u32::try_from(RAW_TENSORS + VQ_TENSORS * 2).unwrap()
+        );
 
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
