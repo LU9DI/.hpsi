@@ -30,7 +30,7 @@ pub enum TensorDisposition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedTensorPolicy {
     /// Fail rather than silently omit a tensor this importer cannot quantize.
-    PreserveRaw,
+    AllowRawPreservation,
     /// Reject the plan if any tensor cannot be VQ-quantized.
     Reject,
 }
@@ -38,7 +38,7 @@ pub enum UnsupportedTensorPolicy {
 impl ModelImportPlan {
     /// Build a stable plan sorted by source tensor name. Rank-2 floating tensors
     /// are selected for VQ; all other currently supported Safetensors dtypes
-    /// are either marked for lossless raw preservation or rejected by policy.
+    /// are either marked for raw preservation or rejected by policy.
     /// Calibration is matched by exact source tensor name and input feature count.
     pub fn build(
         source: &SafeTensorFile,
@@ -56,12 +56,15 @@ impl ModelImportPlan {
         }
         let mut names: Vec<_> = source.tensors().iter().collect();
         names.sort_by(|a, b| a.name.cmp(&b.name));
+        let source_names: HashSet<&str> = source.tensors().iter().map(|tensor| tensor.name.as_str()).collect();
         let mut generated_names = HashSet::new();
         let mut tensors = Vec::with_capacity(names.len());
 
         for tensor in names {
-            let quantizable =
-                tensor.shape.len() == 2 && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
+            let quantizable = tensor.shape.len() == 2
+                && tensor.shape.iter().all(|dimension| *dimension > 0)
+                && tensor.shape[1] % crate::vq::GROUP_SIZE as u64 == 0
+                && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
             if !quantizable && unsupported_policy == UnsupportedTensorPolicy::Reject {
                 return Err(VqError(
                     "model contains a tensor unsupported by VQ import policy",
@@ -82,9 +85,9 @@ impl ModelImportPlan {
                 {
                     return Err(VqError("generated VQ tensor name collision"));
                 }
-                if source.tensors().iter().any(|source_tensor| {
-                    source_tensor.name == codebook || source_tensor.name == indices
-                }) {
+                if source_names.contains(codebook.as_str())
+                    || source_names.contains(indices.as_str())
+                {
                     return Err(VqError(
                         "generated VQ tensor name collides with source tensor",
                     ));
