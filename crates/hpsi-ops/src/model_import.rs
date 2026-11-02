@@ -216,35 +216,47 @@ mod tests {
         let source = source();
         let mut invalid = calibration();
         invalid.sample_count = 0;
-        assert!(ModelImportPlan::build(
-            &source,
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source,
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
 
         let mut invalid = calibration();
         invalid.activation_second_moment[0] = f32::NAN;
-        assert!(ModelImportPlan::build(
-            &source,
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source,
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
 
         let mut invalid = calibration();
         invalid.activation_second_moment[0] = -1.0;
-        assert!(ModelImportPlan::build(
-            &source,
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source,
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
 
         let mut invalid = calibration();
         invalid.activation_second_moment.pop();
-        assert!(ModelImportPlan::build(
-            &source,
-            &[invalid],
-            UnsupportedTensorPolicy::AllowRawPreservation
-        ).is_err());
+        assert!(
+            ModelImportPlan::build(
+                &source,
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
+        );
     }
 
     #[test]
