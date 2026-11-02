@@ -67,7 +67,7 @@ The additive codebook reserves a zero residual centroid, so its weight-domain pe
 
 The encoder now supports one through four additive codebooks. Each residual stage is trained against the residual left by all preceding stages and reserves a zero centroid. Selectors are nibble-packed at four bits each; the row-streamed HPSI path reads only blocks intersecting the requested output rows.
 
-The deterministic benchmark now reports all four rates on the same matrix and held-out inputs. It also measures a 32-row window through `ModelReader` over a `MemorySource`, recording p50/p95 and payload bytes read per window. This isolates container parsing, block selection, and direct computation without claiming physical-storage latency. The in-memory VQ operator, HPSI row-window path, and dense F32 reference are reported separately.
+The deterministic benchmark reports all four rates on the same matrix and held-out inputs. It measures a 32-row window through `ModelReader` over a `MemorySource` using a prepared `HpsiVqExecutor`: the shared codebook is loaded once at executor construction, then each timed operation reads only the selected index block(s) and computes only the requested rows. Initialization latency is reported separately from repeated row-window p50/p95 and payload bytes per window. This isolates container parsing, block selection, and direct computation without claiming physical-storage latency. The in-memory VQ operator, prepared HPSI row-window path, and dense F32 reference are reported separately.
 
 ### Recorded four-rate sweep — CI run #70
 
