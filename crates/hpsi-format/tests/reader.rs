@@ -81,6 +81,28 @@ fn read_block_fetches_only_selected_payload() {
 }
 
 #[test]
+fn parser_preserves_unknown_tensor_codec_for_runtime_dispatch() {
+    let mut bytes = fixture();
+    bytes[200 + 6..200 + 8].copy_from_slice(&u16::MAX.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
+
+    assert_eq!(reader.tensor(7).unwrap().codec, u16::MAX);
+}
+
+#[test]
+fn parser_preserves_unknown_block_codec_without_assuming_raw_lengths() {
+    let mut bytes = fixture();
+    bytes[328 + 12..328 + 14].copy_from_slice(&u16::MAX.to_le_bytes());
+    bytes[328 + 40..328 + 48].copy_from_slice(&1_u64.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
+
+    assert_eq!(reader.block(7, 0).unwrap().codec, u16::MAX);
+    assert_eq!(reader.block(7, 0).unwrap().payload_length, 1);
+}
+
+#[test]
 fn rejects_unknown_tensor_id() {
     let source = Arc::new(MemorySource::new(fixture()));
     let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
