@@ -481,6 +481,43 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     provenance
         .try_reserve_exact(plan.tensors.len())
         .map_err(|_| VqError("could not reserve import provenance"))?;
+    let mut metadata_tensor_names = Vec::new();
+    metadata_tensor_names
+        .try_reserve_exact(output_tensor_count)
+        .map_err(|_| VqError("could not reserve metadata tensor names"))?;
+    for planned in &plan.tensors {
+        provenance.push(json!({
+            "name": planned.source_name,
+            "source_dtype": planned.source_dtype,
+            "source_shape": planned.source_shape,
+            "disposition": match planned.disposition {
+                TensorDisposition::QuantizeVq => "quantize_vq",
+                TensorDisposition::PreserveRaw => "preserve_raw"
+            }
+        }));
+        match planned.disposition {
+            TensorDisposition::PreserveRaw => metadata_tensor_names.push(planned.source_name.clone()),
+            TensorDisposition::QuantizeVq => {
+                metadata_tensor_names.push(planned.codebook_name.clone().ok_or(VqError("VQ plan has no codebook name"))?);
+                metadata_tensor_names.push(planned.indices_name.clone().ok_or(VqError("VQ plan has no indices name"))?);
+            }
+        }
+    }
+    let metadata = json!({
+        "producer": {"name": "hpsi-safetensors-import", "version": env!("CARGO_PKG_VERSION")},
+        "model": {"source_format": "safetensors"},
+        "user": {"source_tensors": provenance},
+        "format": "hpsi",
+        "metadata_version": 1,
+        "tensor_names": metadata_tensor_names
+    });
+    let metadata_bytes = serde_json::to_vec(&metadata)
+        .map_err(|_| VqError("could not serialize import metadata"))?;
+    if metadata_bytes.len() > 16 * 1024 * 1024 {
+        return Err(VqError("model import exceeds HPSI metadata byte limit"));
+    }
+    hpsi_format::Metadata::parse(&metadata_bytes, &ReaderLimits::default())
+        .map_err(|_| VqError("model import metadata exceeds HPSI format limits"))?;
     let mut spool = ImportSpool::create(output_payload_bytes)?;
     let mut next_id = 0_u32;
 
@@ -494,16 +531,6 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 "import plan no longer matches source tensor metadata",
             ));
         }
-        provenance.push(json!({
-            "name": planned.source_name,
-            "source_dtype": planned.source_dtype,
-            "source_shape": planned.source_shape,
-            "disposition": match planned.disposition {
-                TensorDisposition::QuantizeVq => "quantize_vq",
-                TensorDisposition::PreserveRaw => "preserve_raw"
-            }
-        }));
-
         match planned.disposition {
             TensorDisposition::PreserveRaw => {
                 let length = info
@@ -707,11 +734,6 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     spool
         .flush()
         .map_err(|_| VqError("could not flush model import spool"))?;
-    let metadata = json!({
-        "producer": {"name": "hpsi-safetensors-import", "version": env!("CARGO_PKG_VERSION")},
-        "model": {"source_format": "safetensors"},
-        "user": {"source_tensors": provenance}
-    });
     ModelWriter::write_streaming_with_metadata(
         output,
         &tensors,
