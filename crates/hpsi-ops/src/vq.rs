@@ -192,7 +192,12 @@ impl VqMatrix {
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
+        let bytes_per_row = selectors_per_row(cols, config.codebook_count)? / 2;
+        let packed_len = rows.checked_mul(bytes_per_row)
+            .ok_or(VqError("packed index count overflow"))?;
         let mut packed_indices = Vec::new();
+        packed_indices.try_reserve_exact(packed_len)
+            .map_err(|_| VqError("could not allocate packed selector matrix"))?;
         let codebook = Self::encode_from_reader_to(
             rows,
             cols,
@@ -358,7 +363,12 @@ impl VqMatrix {
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
+        let bytes_per_row = selectors_per_row(cols, config.codebook_count)? / 2;
+        let packed_len = rows.checked_mul(bytes_per_row)
+            .ok_or(VqError("packed index count overflow"))?;
         let mut packed_indices = Vec::new();
+        packed_indices.try_reserve_exact(packed_len)
+            .map_err(|_| VqError("could not allocate packed selector matrix"))?;
         let codebook = Self::encode_from_reader_activation_aware_to(
             rows,
             cols,
@@ -771,7 +781,10 @@ impl VqMatrix {
             .checked_add(1)
             .ok_or(VqError("packed index count overflow"))?
             / 2;
-        let mut packed_indices = vec![0_u8; packed_len];
+        let mut packed_indices = Vec::new();
+        packed_indices.try_reserve_exact(packed_len)
+            .map_err(|_| VqError("could not allocate packed VQ indices"))?;
+        packed_indices.resize(packed_len, 0_u8);
 
         for group_index in 0..group_count {
             let start = group_index * GROUP_SIZE;
@@ -789,17 +802,21 @@ impl VqMatrix {
             }
         }
 
-        let codebook = codebooks
-            .into_iter()
-            .flat_map(|book| {
-                book.into_iter().flat_map(|mut centroid| {
-                    for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
-                        *value /= scale;
-                    }
-                    centroid
-                })
-            })
-            .collect();
+        let codebook_len = config.codebook_count
+            .checked_mul(CODEBOOK_SIZE)
+            .and_then(|count| count.checked_mul(GROUP_SIZE))
+            .ok_or(VqError("VQ codebook length overflow"))?;
+        let mut codebook = Vec::new();
+        codebook.try_reserve_exact(codebook_len)
+            .map_err(|_| VqError("could not allocate flattened VQ codebook"))?;
+        for book in codebooks {
+            for mut centroid in book {
+                for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
+                    *value /= scale;
+                }
+                codebook.extend_from_slice(&centroid);
+            }
+        }
 
         Ok(Self {
             rows,
@@ -1256,7 +1273,12 @@ fn fit_codebook(
     iterations: usize,
     reserve_zero_centroid: bool,
 ) -> Result<Vec<[f32; GROUP_SIZE]>, VqError> {
-    let mut centroids = Vec::with_capacity(CODEBOOK_SIZE);
+    if samples.is_empty() {
+        return Err(VqError("cannot fit a codebook without training samples"));
+    }
+    let mut centroids = Vec::new();
+    centroids.try_reserve_exact(CODEBOOK_SIZE)
+        .map_err(|_| VqError("could not allocate VQ centroids"))?;
     if reserve_zero_centroid {
         centroids.push([0.0; GROUP_SIZE]);
     } else {
@@ -1281,7 +1303,10 @@ fn fit_codebook(
         centroids.push(samples[best_index]);
     }
 
-    let mut nearest_distances = vec![0.0_f32; samples.len()];
+    let mut nearest_distances = Vec::new();
+    nearest_distances.try_reserve_exact(samples.len())
+        .map_err(|_| VqError("could not allocate VQ nearest distances"))?;
+    nearest_distances.resize(samples.len(), 0.0_f32);
     for _ in 0..iterations {
         let mut sums = [[0.0_f32; GROUP_SIZE]; CODEBOOK_SIZE];
         let mut counts = [0_usize; CODEBOOK_SIZE];
@@ -1311,7 +1336,10 @@ fn fit_codebook(
         // Empty clusters waste selector values. Re-seed them from distinct
         // worst-represented samples so subsequent Lloyd iterations can use
         // those codewords instead of retaining duplicate/obsolete centers.
-        let mut reseeded = vec![false; samples.len()];
+        let mut reseeded = Vec::new();
+        reseeded.try_reserve_exact(samples.len())
+            .map_err(|_| VqError("could not allocate VQ reseed markers"))?;
+        reseeded.resize(samples.len(), false);
         for cluster in 0..CODEBOOK_SIZE {
             if counts[cluster] != 0 || (reserve_zero_centroid && cluster == 0) {
                 continue;
