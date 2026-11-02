@@ -61,25 +61,31 @@ provenance before exposing the per-feature values. Zero second moments are accep
 they can represent inactive features, and the activation-aware encoder applies a small
 positive numerical floor internally when deriving its group-position scale.
 
-A caller can pass the validated vector directly to
-`VqMatrix::encode_activation_aware(weights, rows, cols, config,
-&calibration.activation_second_moment)`. The matrix column count must equal
-`calibration.features`. This is a library integration point; a complete source-model
-weight importer and layer-by-layer end-to-end evaluation are still separate work.
+The multi-tensor Safetensors importer accepts validated calibration records through
+`ModelImportPlan::build`. It matches each record to an exact source tensor name and
+requires the calibration feature count to equal the tensor's input dimension. Eligible
+rank-2 F32/F16/BF16 weights are then quantized with the activation-aware VQ path; other
+tensors follow the selected raw-preservation or reject policy. Calibration values affect
+the encoding, but calibration provenance (dataset digest, model revision, and statistic
+version) is not yet persisted in the HPSI artifact. Real-model layer-output and task-quality
+evaluation remain separate work.
 
 ## Inspecting local Safetensors weights
 
 The Rust `hpsi-ops` crate now includes a bounded-header, random-access Safetensors reader.
 It parses tensor names, dtypes, shapes and byte ranges without loading the weight payloads.
-For rank-2 F32, F16 and BF16 tensors, `SafeTensorFile::read_f32_rows` reads only a requested row window and converts the selected values to F32. Other dtypes are identified in metadata but are not silently converted.
+The reader validates all 22 Safetensors dtypes currently supported by the format parser without loading tensor payloads. For rank-2 F32, F16 and BF16 tensors, `SafeTensorFile::read_f32_rows` reads only a requested row window and converts the selected values to F32; `copy_raw_payload` preserves any supported dtype's original bytes without conversion.
 The CLI exposes metadata inspection:
 
 ```bash
 cargo run -p hpsi-cli -- safetensors-inspect ./model.safetensors
 ```
 
-This first importer stage deliberately supports reading F32 row windows only; F16/BF16
-and other supported metadata dtypes can be identified but are not silently converted.
-The current CLI command reports metadata and does not yet quantize tensors or write an
-HPSI model. Sharded model indexes, automatic layer/calibration matching, and end-to-end
-weight conversion remain follow-up work.
+The `safetensors-inspect` CLI command reports metadata only. The library also exposes
+a single-tensor VQ convenience path and a complete multi-tensor import pipeline:
+`ModelImportPlan::build` plans every tensor, while `write_model_import_to_hpsi` emits
+one HPSI container and `write_model_import_to_hpsi_path` verifies and publishes a file
+without replacing an existing destination. VQ is currently limited to eligible rank-2
+F32/F16/BF16 tensors; other non-scalar, non-empty tensors can be preserved byte-for-byte
+or rejected by policy. Sharded model indexes and automatic calibration-name mapping across
+architectures remain follow-up work.
