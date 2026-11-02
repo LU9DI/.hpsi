@@ -1,0 +1,9 @@
+[package]
+name = "hpsi-format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Safe parser and random-access primitives for the HPSI model container"
+
+[dependencies]
