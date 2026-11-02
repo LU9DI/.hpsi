@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_activation_calibration_for_a_tensor_that_is_not_in_plan() {
+    fn imports_vq_tensor_with_activation_calibration() {
         let (source, _, _) = fixture();
         let calibration = ActivationCalibration {
             layer_name: "weight".into(),
