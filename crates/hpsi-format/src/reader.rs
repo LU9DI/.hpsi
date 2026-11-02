@@ -553,11 +553,6 @@ fn validate_integrity_coverage(
     integrity: &[IntegrityRecord],
 ) -> Result<()> {
     let mut metadata_seen = false;
-    let mut block_seen = Vec::new();
-    block_seen
-        .try_reserve_exact(blocks.len())
-        .map_err(|_| FormatError::LimitExceeded("integrity coverage allocation failed"))?;
-    block_seen.resize(blocks.len(), false);
 
     for (record_index, record) in integrity.iter().enumerate() {
         match record.target {
@@ -570,16 +565,9 @@ fn validate_integrity_coverage(
                 metadata_seen = true;
             }
             IntegrityTarget::BlockPayload(block_index) => {
-                let seen = block_seen.get_mut(block_index as usize).ok_or(
+                let block = blocks.get(block_index as usize).ok_or(
                     FormatError::InvalidReference("integrity block index out of range"),
                 )?;
-                if *seen {
-                    return Err(FormatError::InvalidDirectory(
-                        "a block may have at most one integrity record",
-                    ));
-                }
-                *seen = true;
-                let block = &blocks[block_index as usize];
                 let expected_index = u32::try_from(record_index)
                     .map_err(|_| FormatError::LimitExceeded("integrity record index"))?;
                 if block.checksum_index != Some(expected_index) {
@@ -604,11 +592,6 @@ fn validate_integrity_coverage(
                         "block checksum target mismatch",
                     ));
                 }
-            }
-            None if block_seen[block_index] => {
-                return Err(FormatError::InvalidReference(
-                    "integrity record is not referenced by its block",
-                ));
             }
             None => {}
         }
