@@ -742,6 +742,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_import_block_layout_overflow_before_spooling() {
+        let (source, _, _) = fixture();
+        let plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
+        let mut output = Cursor::new(Vec::new());
+        assert!(write_model_import_to_hpsi(
+            &source,
+            &plan,
+            &mut output,
+            config(),
+            usize::MAX,
+        )
+        .is_err());
+        assert!(output.get_ref().is_empty());
+    }
+
+    #[test]
     fn rejects_plan_that_omits_or_reorders_source_tensors() {
         let (source, _, _) = fixture();
         let mut plan =
