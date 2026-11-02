@@ -95,6 +95,11 @@ impl ModelImportPlan {
                 && tensor.shape.iter().all(|dimension| *dimension > 0)
                 && tensor.shape[1] % crate::vq::GROUP_SIZE as u64 == 0
                 && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
+            if calibration_by_name.contains_key(tensor.name.as_str()) && !quantizable {
+                return Err(VqError(
+                    "activation calibration targets a tensor that is not eligible for VQ",
+                ));
+            }
             if !quantizable && unsupported_policy == UnsupportedTensorPolicy::Reject {
                 return Err(VqError(
                     "model contains a tensor unsupported by VQ import policy",
@@ -265,6 +270,19 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn rejects_calibration_for_non_quantizable_tensor() {
+        let mut invalid = calibration();
+        invalid.layer_name = "bias".into();
+        invalid.features = 2;
+        invalid.activation_second_moment = vec![1.0; 2];
+        assert!(ModelImportPlan::build(
+            &source(),
+            &[invalid],
+            UnsupportedTensorPolicy::AllowRawPreservation
+        ).is_err());
     }
 
     #[test]
