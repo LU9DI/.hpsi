@@ -89,21 +89,48 @@ impl VqMatrix {
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
-        let expected = rows
-            .checked_mul(cols)
+        let mut packed_indices = Vec::new();
+        let codebook = Self::encode_from_reader_to(
+            rows, cols, config, |offset, count| read_elements(offset, count),
+            |_, row| {
+                packed_indices.extend_from_slice(row);
+                Ok(())
+            },
+        )?;
+        Ok(Self {
+            rows,
+            cols,
+            codebook_count: config.codebook_count,
+            codebook,
+            packed_indices,
+        })
+    }
+
+    /// Train from bounded source windows, then emit one independently aligned
+    /// packed selector row at a time. The complete selector matrix is never
+    /// retained by this API; callers can write rows to a spool or downstream
+    /// block encoder as soon as they are produced.
+    pub fn encode_from_reader_to<F, E>(
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        mut read_elements: F,
+        mut emit_row: E,
+    ) -> Result<Vec<f32>, VqError>
+    where
+        F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+        E: FnMut(u64, &[u8]) -> Result<(), VqError>,
+    {
+        let expected = rows.checked_mul(cols)
             .ok_or(VqError("matrix element count overflow"))?;
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
         if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError(
-                "k-means iterations and sample limit must be non-zero",
-            ));
+            return Err(VqError("k-means iterations and sample limit must be non-zero"));
         }
         if !(1..=4).contains(&config.codebook_count) {
-            return Err(VqError(
-                "only one through four additive codebooks are supported",
-            ));
+            return Err(VqError("only one through four additive codebooks are supported"));
         }
         if !(1..=256).contains(&config.beam_width) {
             return Err(VqError("beam width must be between 1 and 256"));
@@ -113,87 +140,60 @@ impl VqMatrix {
         let group_count = expected / GROUP_SIZE;
         let sample_count = group_count.min(config.sample_limit);
         let mut samples = Vec::new();
-        samples
-            .try_reserve_exact(sample_count)
+        samples.try_reserve_exact(sample_count)
             .map_err(|_| VqError("could not allocate VQ training samples"))?;
         for sample_index in 0..sample_count {
-            let group_index =
-                ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
-            let offset = group_index
-                .checked_mul(GROUP_SIZE)
+            let group_index = ((sample_index as u128 * group_count as u128)
+                / sample_count as u128) as usize;
+            let offset = group_index.checked_mul(GROUP_SIZE)
                 .ok_or(VqError("sample element offset overflow"))?;
             let values = read_elements(offset as u64, GROUP_SIZE as u64)?;
             if values.len() != GROUP_SIZE || values.iter().any(|value| !value.is_finite()) {
-                return Err(VqError(
-                    "reader returned an invalid or non-finite sample window",
-                ));
+                return Err(VqError("reader returned an invalid or non-finite sample window"));
             }
             let mut vector = [0.0_f32; GROUP_SIZE];
             vector.copy_from_slice(&values);
             samples.push(vector);
         }
 
-        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> = Vec::with_capacity(config.codebook_count);
+        let mut codebooks: Vec<Vec<[f32; GROUP_SIZE]>> =
+            Vec::with_capacity(config.codebook_count);
         for stage in 0..config.codebook_count {
-            let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
-                .iter()
+            let residual_samples: Vec<[f32; GROUP_SIZE]> = samples.iter()
                 .map(|sample| beam_search_additive(sample, &codebooks, config.beam_width).0)
                 .collect();
-            codebooks.push(fit_codebook(
-                &residual_samples,
-                config.iterations,
-                stage != 0,
-            )?);
+            codebooks.push(fit_codebook(&residual_samples, config.iterations, stage != 0)?);
         }
 
         let selectors_per_row = selectors_per_row(cols, config.codebook_count)?;
         let bytes_per_row = selectors_per_row / 2;
-        let packed_len = rows
-            .checked_mul(bytes_per_row)
-            .ok_or(VqError("packed index stream size overflow"))?;
-        let mut packed_indices = Vec::new();
-        packed_indices
-            .try_reserve_exact(packed_len)
-            .map_err(|_| VqError("could not allocate packed selector stream"))?;
-        packed_indices.resize(packed_len, 0);
-
-        // Each row is byte-aligned by selectors_per_row(), allowing independent
-        // bounded reads and direct writes into its final packed byte range.
+        let mut packed_row = Vec::new();
+        packed_row.try_reserve_exact(bytes_per_row)
+            .map_err(|_| VqError("could not allocate packed selector row"))?;
         for row in 0..rows {
-            let first_element = row
-                .checked_mul(cols)
+            let first_element = row.checked_mul(cols)
                 .ok_or(VqError("row element offset overflow"))?;
             let values = read_elements(first_element as u64, cols as u64)?;
             if values.len() != cols || values.iter().any(|value| !value.is_finite()) {
-                return Err(VqError(
-                    "reader returned an invalid or non-finite row window",
-                ));
+                return Err(VqError("reader returned an invalid or non-finite row window"));
             }
-            let destination = row * bytes_per_row;
+            packed_row.clear();
+            packed_row.resize(bytes_per_row, 0);
             for (group_in_row, chunk) in values.chunks_exact(GROUP_SIZE).enumerate() {
                 let mut residual = [0.0_f32; GROUP_SIZE];
                 residual.copy_from_slice(chunk);
                 let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
                 for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
-                    let selector_in_row = group_in_row * config.codebook_count + stage;
-                    let byte_index = destination + selector_in_row / 2;
-                    let shift = (selector_in_row % 2) * 4;
-                    packed_indices[byte_index] |= *code << shift;
+                    let selector = group_in_row * config.codebook_count + stage;
+                    packed_row[selector / 2] |= *code << ((selector % 2) * 4);
                 }
             }
+            emit_row(row as u64, &packed_row)?;
         }
 
-        let codebook = codebooks
-            .into_iter()
+        Ok(codebooks.into_iter()
             .flat_map(|book| book.into_iter().flatten())
-            .collect();
-        Ok(Self {
-            rows,
-            cols,
-            codebook_count: config.codebook_count,
-            codebook,
-            packed_indices,
-        })
+            .collect())
     }
 
     /// Streaming equivalent of activation-aware encoding. Importance is
