@@ -985,7 +985,7 @@ mod tests {
         assert_eq!(stats.tensor_count, 3);
     }
     #[test]
-    fn rejects_scalar_safetensors_before_spooling_or_writing() {
+    fn rejects_scalar_safetensors_during_import_planning() {
         let header = br#"{"scalar":{"dtype":"F32","shape":[],"data_offsets":[0,4]}}"#;
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
@@ -994,12 +994,15 @@ mod tests {
         let source =
             SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
                 .unwrap();
-        let plan =
-            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
-                .unwrap();
-        let mut output = Cursor::new(Vec::new());
-        assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
-        assert!(output.get_ref().is_empty());
+
+        assert!(
+            ModelImportPlan::build(
+                &source,
+                &[],
+                UnsupportedTensorPolicy::AllowRawPreservation,
+            )
+            .is_err()
+        );
     }
 
     #[test]
