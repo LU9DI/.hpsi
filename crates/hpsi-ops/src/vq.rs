@@ -1,4 +1,6 @@
-use hpsi_format::{DType, ModelReader, ModelWriter, PayloadBlock, StreamingTensorInput, TensorInput, WriterStats};
+use hpsi_format::{
+    DType, ModelReader, ModelWriter, PayloadBlock, StreamingTensorInput, TensorInput, WriterStats,
+};
 use std::io::{Read, Seek, SeekFrom, Write};
 
 pub const GROUP_SIZE: usize = 8;
@@ -275,12 +277,19 @@ impl VqMatrix {
         let selectors = selectors_per_row(cols, config.codebook_count)?;
         let bytes_per_row = selectors / 2;
         let codebook = Self::encode_from_reader_to(
-            rows, cols, config,
+            rows,
+            cols,
+            config,
             |offset, count| read_elements(offset, count),
-            |_, row| spool.write_all(row)
-                .map_err(|_| VqError("could not spool packed selector row")),
+            |_, row| {
+                spool
+                    .write_all(row)
+                    .map_err(|_| VqError("could not spool packed selector row"))
+            },
         )?;
-        spool.flush().map_err(|_| VqError("could not flush selector spool"))?;
+        spool
+            .flush()
+            .map_err(|_| VqError("could not flush selector spool"))?;
 
         let mut codebook_bytes = Vec::with_capacity(codebook.len() * 4);
         for value in &codebook {
@@ -291,19 +300,25 @@ impl VqMatrix {
         let mut first_row = 0usize;
         while first_row < rows {
             let count = block_rows.min(rows - first_row);
-            let length = count.checked_mul(bytes_per_row)
+            let length = count
+                .checked_mul(bytes_per_row)
                 .ok_or(VqError("selector block length overflow"))?;
             index_block_lengths.push(length as u64);
             first_row += count;
         }
-        let index_bytes = rows.checked_mul(bytes_per_row)
+        let index_bytes = rows
+            .checked_mul(bytes_per_row)
             .ok_or(VqError("selector stream size overflow"))?;
         let mut tensors = vec![
             StreamingTensorInput {
                 tensor_id: 0,
                 name: "hpsi.vq.codebook".into(),
                 dtype: DType::F32,
-                dimensions: vec![config.codebook_count as u64, CODEBOOK_SIZE as u64, GROUP_SIZE as u64],
+                dimensions: vec![
+                    config.codebook_count as u64,
+                    CODEBOOK_SIZE as u64,
+                    GROUP_SIZE as u64,
+                ],
                 block_lengths: vec![codebook_len],
             },
             StreamingTensorInput {
@@ -320,32 +335,38 @@ impl VqMatrix {
         }
         let mut spool_offset = 0u64;
         let mut current_block = 0usize;
-        let stats = ModelWriter::write_streaming(out, &tensors, |tensor_index, block_index, sink| {
-            if tensor_index == 0 {
-                sink.write_all(&codebook_bytes)
+        let stats =
+            ModelWriter::write_streaming(out, &tensors, |tensor_index, block_index, sink| {
+                if tensor_index == 0 {
+                    sink.write_all(&codebook_bytes)
+                        .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
+                    return Ok(codebook_len);
+                }
+                if tensor_index != 1 || block_index != current_block {
+                    return Err(hpsi_format::FormatError::InvalidBlock(
+                        "unexpected VQ selector block request",
+                    ));
+                }
+                let length = tensors[1].block_lengths[block_index];
+                spool
+                    .seek(SeekFrom::Start(spool_offset))
                     .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
-                return Ok(codebook_len);
-            }
-            if tensor_index != 1 || block_index != current_block {
-                return Err(hpsi_format::FormatError::InvalidBlock("unexpected VQ selector block request"));
-            }
-            let length = tensors[1].block_lengths[block_index];
-            spool.seek(SeekFrom::Start(spool_offset))
-                .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
-            let mut remaining = length;
-            let mut buffer = [0u8; 64 * 1024];
-            while remaining > 0 {
-                let count = remaining.min(buffer.len() as u64) as usize;
-                spool.read_exact(&mut buffer[..count])
-                    .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
-                sink.write_all(&buffer[..count])
-                    .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
-                remaining -= count as u64;
-            }
-            spool_offset += length;
-            current_block += 1;
-            Ok(length)
-        }).map_err(|_| VqError("HPSI streaming writer failed"))?;
+                let mut remaining = length;
+                let mut buffer = [0u8; 64 * 1024];
+                while remaining > 0 {
+                    let count = remaining.min(buffer.len() as u64) as usize;
+                    spool
+                        .read_exact(&mut buffer[..count])
+                        .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
+                    sink.write_all(&buffer[..count])
+                        .map_err(|error| hpsi_format::FormatError::Io(error.to_string()))?;
+                    remaining -= count as u64;
+                }
+                spool_offset += length;
+                current_block += 1;
+                Ok(length)
+            })
+            .map_err(|_| VqError("HPSI streaming writer failed"))?;
         Ok(stats)
     }
 
