@@ -348,8 +348,17 @@ impl VqMatrix {
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
         Self::encode_from_reader_to_hpsi_named(
-            out, spool, rows, cols, config, block_rows,
-            0, "hpsi.vq.codebook", 1, "hpsi.vq.indices", read_elements,
+            out,
+            spool,
+            rows,
+            cols,
+            config,
+            block_rows,
+            0,
+            "hpsi.vq.codebook",
+            1,
+            "hpsi.vq.indices",
+            read_elements,
         )
     }
 
