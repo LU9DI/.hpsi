@@ -28,11 +28,13 @@ fn direct_matvec_from_hpsi_payloads_matches_in_memory_vq_view() {
     let reader = ModelReader::open(
         Arc::new(MemorySource::new(artifact.into_inner())),
         &ReaderLimits::default(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let codebook_payload = reader.read_block(10, 0).unwrap().payload;
     let indices_payload = reader.read_block(11, 0).unwrap().payload;
-    let codebook: Vec<f32> = codebook_payload.chunks_exact(4)
+    let codebook: Vec<f32> = codebook_payload
+        .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
         .collect();
     let stored_view = VqMatrixView::new(rows, cols, &codebook, &indices_payload).unwrap();

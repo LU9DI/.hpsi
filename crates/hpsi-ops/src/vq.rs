@@ -12,7 +12,10 @@ pub struct VqConfig {
 
 impl Default for VqConfig {
     fn default() -> Self {
-        Self { iterations: 12, sample_limit: 65_536 }
+        Self {
+            iterations: 12,
+            sample_limit: 65_536,
+        }
     }
 }
 
@@ -37,13 +40,24 @@ pub struct VqMatrix {
 }
 
 impl VqMatrix {
-    pub fn encode(weights: &[f32], rows: usize, cols: usize, config: VqConfig) -> Result<Self, VqError> {
-        let expected = rows.checked_mul(cols).ok_or(VqError("matrix element count overflow"))?;
+    pub fn encode(
+        weights: &[f32],
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+    ) -> Result<Self, VqError> {
+        let expected = rows
+            .checked_mul(cols)
+            .ok_or(VqError("matrix element count overflow"))?;
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 || weights.len() != expected {
-            return Err(VqError("matrix shape must be non-zero, group-aligned, and match weights"));
+            return Err(VqError(
+                "matrix shape must be non-zero, group-aligned, and match weights",
+            ));
         }
         if config.iterations == 0 || config.sample_limit == 0 {
-            return Err(VqError("k-means iterations and sample limit must be non-zero"));
+            return Err(VqError(
+                "k-means iterations and sample limit must be non-zero",
+            ));
         }
         if weights.iter().any(|value| !value.is_finite()) {
             return Err(VqError("matrix weights must be finite"));
@@ -53,7 +67,8 @@ impl VqMatrix {
         let sample_count = group_count.min(config.sample_limit);
         let mut samples = Vec::with_capacity(sample_count);
         for sample_index in 0..sample_count {
-            let group_index = ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
+            let group_index =
+                ((sample_index as u128 * group_count as u128) / sample_count as u128) as usize;
             let mut vector = [0.0_f32; GROUP_SIZE];
             let start = group_index * GROUP_SIZE;
             vector.copy_from_slice(&weights[start..start + GROUP_SIZE]);
@@ -66,7 +81,8 @@ impl VqMatrix {
             let mut best_index = 0;
             let mut best_distance = f32::NEG_INFINITY;
             for (index, sample) in samples.iter().enumerate() {
-                let distance = centroids.iter()
+                let distance = centroids
+                    .iter()
                     .map(|centroid| squared_distance(sample, centroid))
                     .fold(f32::INFINITY, f32::min);
                 if distance > best_distance {
@@ -88,7 +104,9 @@ impl VqMatrix {
                 }
             }
             for cluster in 0..CODEBOOK_SIZE {
-                if counts[cluster] == 0 { continue; }
+                if counts[cluster] == 0 {
+                    continue;
+                }
                 let divisor = counts[cluster] as f32;
                 for dimension in 0..GROUP_SIZE {
                     centroids[cluster][dimension] = sums[cluster][dimension] / divisor;
@@ -99,7 +117,10 @@ impl VqMatrix {
             }
         }
 
-        let packed_len = group_count.checked_add(1).ok_or(VqError("packed index count overflow"))? / 2;
+        let packed_len = group_count
+            .checked_add(1)
+            .ok_or(VqError("packed index count overflow"))?
+            / 2;
         let mut packed_indices = vec![0_u8; packed_len];
         for group_index in 0..group_count {
             let start = group_index * GROUP_SIZE;
@@ -113,14 +134,30 @@ impl VqMatrix {
             }
         }
 
-        let codebook = centroids.into_iter().flat_map(|centroid| centroid.into_iter()).collect();
-        Ok(Self { rows, cols, codebook, packed_indices })
+        let codebook = centroids
+            .into_iter()
+            .flat_map(|centroid| centroid.into_iter())
+            .collect();
+        Ok(Self {
+            rows,
+            cols,
+            codebook,
+            packed_indices,
+        })
     }
 
-    pub fn rows(&self) -> usize { self.rows }
-    pub fn cols(&self) -> usize { self.cols }
-    pub fn codebook(&self) -> &[f32] { &self.codebook }
-    pub fn packed_indices(&self) -> &[u8] { &self.packed_indices }
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+    pub fn codebook(&self) -> &[f32] {
+        &self.codebook
+    }
+    pub fn packed_indices(&self) -> &[u8] {
+        &self.packed_indices
+    }
 
     pub fn stored_bytes(&self) -> usize {
         self.codebook.len() * std::mem::size_of::<f32>() + self.packed_indices.len()
@@ -129,7 +166,12 @@ impl VqMatrix {
         self.rows * self.cols * std::mem::size_of::<f32>()
     }
     pub fn view(&self) -> VqMatrixView<'_> {
-        VqMatrixView { rows: self.rows, cols: self.cols, codebook: &self.codebook, packed_indices: &self.packed_indices }
+        VqMatrixView {
+            rows: self.rows,
+            cols: self.cols,
+            codebook: &self.codebook,
+            packed_indices: &self.packed_indices,
+        }
     }
 
     /// Export codebook and packed selectors as two HPSI tensors.
@@ -143,7 +185,9 @@ impl VqMatrix {
             return Err(VqError("codebook tensor ID must precede index tensor ID"));
         }
         if block_bytes < 4 || block_bytes % 4 != 0 {
-            return Err(VqError("block size must be a positive multiple of four bytes"));
+            return Err(VqError(
+                "block size must be a positive multiple of four bytes",
+            ));
         }
         let mut codebook_bytes = Vec::with_capacity(self.codebook.len() * 4);
         for value in &self.codebook {
@@ -179,19 +223,38 @@ pub struct VqMatrixView<'a> {
 }
 
 impl<'a> VqMatrixView<'a> {
-    pub fn new(rows: usize, cols: usize, codebook: &'a [f32], packed_indices: &'a [u8]) -> Result<Self, VqError> {
+    pub fn new(
+        rows: usize,
+        cols: usize,
+        codebook: &'a [f32],
+        packed_indices: &'a [u8],
+    ) -> Result<Self, VqError> {
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
         if codebook.len() != CODEBOOK_VALUES || codebook.iter().any(|value| !value.is_finite()) {
-            return Err(VqError("codebook must contain 16 finite groups of eight values"));
+            return Err(VqError(
+                "codebook must contain 16 finite groups of eight values",
+            ));
         }
-        let groups = rows.checked_mul(cols / GROUP_SIZE).ok_or(VqError("matrix group count overflow"))?;
-        let expected = groups.checked_add(1).ok_or(VqError("packed index count overflow"))? / 2;
+        let groups = rows
+            .checked_mul(cols / GROUP_SIZE)
+            .ok_or(VqError("matrix group count overflow"))?;
+        let expected = groups
+            .checked_add(1)
+            .ok_or(VqError("packed index count overflow"))?
+            / 2;
         if packed_indices.len() != expected {
-            return Err(VqError("packed index stream length does not match matrix shape"));
+            return Err(VqError(
+                "packed index stream length does not match matrix shape",
+            ));
         }
-        Ok(Self { rows, cols, codebook, packed_indices })
+        Ok(Self {
+            rows,
+            cols,
+            codebook,
+            packed_indices,
+        })
     }
 
     pub fn matvec(&self, input: &[f32], output: &mut [f32]) -> Result<(), VqError> {
@@ -204,11 +267,16 @@ impl<'a> VqMatrixView<'a> {
             for group in 0..groups_per_row {
                 let global_group = row * groups_per_row + group;
                 let packed = self.packed_indices[global_group / 2];
-                let code = (if global_group % 2 == 0 { packed & 0x0f } else { packed >> 4 }) as usize;
+                let code = (if global_group % 2 == 0 {
+                    packed & 0x0f
+                } else {
+                    packed >> 4
+                }) as usize;
                 let codebook_offset = code * GROUP_SIZE;
                 let input_offset = group * GROUP_SIZE;
                 for dimension in 0..GROUP_SIZE {
-                    accumulator += input[input_offset + dimension] * self.codebook[codebook_offset + dimension];
+                    accumulator += input[input_offset + dimension]
+                        * self.codebook[codebook_offset + dimension];
                 }
             }
             *output_value = accumulator;
@@ -218,10 +286,13 @@ impl<'a> VqMatrixView<'a> {
 }
 
 fn squared_distance(left: &[f32; GROUP_SIZE], right: &[f32; GROUP_SIZE]) -> f32 {
-    left.iter().zip(right).map(|(a, b)| {
-        let delta = a - b;
-        delta * delta
-    }).sum()
+    left.iter()
+        .zip(right)
+        .map(|(a, b)| {
+            let delta = a - b;
+            delta * delta
+        })
+        .sum()
 }
 
 fn nearest_centroid(vector: &[f32; GROUP_SIZE], centroids: &[[f32; GROUP_SIZE]]) -> usize {
@@ -238,5 +309,10 @@ fn nearest_centroid(vector: &[f32; GROUP_SIZE], centroids: &[[f32; GROUP_SIZE]])
 }
 
 fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Vec<PayloadBlock> {
-    bytes.chunks(block_bytes).map(|chunk| PayloadBlock { bytes: chunk.to_vec() }).collect()
+    bytes
+        .chunks(block_bytes)
+        .map(|chunk| PayloadBlock {
+            bytes: chunk.to_vec(),
+        })
+        .collect()
 }
