@@ -458,7 +458,7 @@ mod tests {
             assert_eq!(values, vec![1.0, -2.0]);
             let mut reused = [0.0_f32; 2];
             file.read_f32_elements_into("w", 0, &mut reused).unwrap();
-            assert_eq!(reused, values);
+            assert_eq!(reused.as_slice(), values.as_slice());
         }
     }
 
