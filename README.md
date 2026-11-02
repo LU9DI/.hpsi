@@ -619,7 +619,7 @@ The new `hpsi-ops` crate contains the first compute primitive over a compressed 
 - `matvec_hpsi_rows` loads the small codebook and only the index blocks intersecting the requested output-row window; the benchmark now measures this HPSI reader path separately from the in-memory operator.
 - `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; integration tests read those blocks back and run the same operation.
 
-The selector stream costs 0.5, 1, 1.5, or 2 bits/weight for one through four codebooks, before codebooks and container overhead. The recorded two-codebook synthetic run improved relative L2 error from 0.763 to 0.589, but that error remained high and the direct CPU kernel was slower than dense F32. The benchmark now sweeps all four rates; new results must be recorded before drawing conclusions. These are experimental measurements, **not** evidence of production model quality.
+The selector stream costs 0.5, 1, 1.5, or 2 bits/weight for one through four codebooks, before codebooks and container overhead. In the deterministic 256 × 256 synthetic benchmark, held-out relative L2 error decreased from 0.763 (one codebook) to 0.346 (four), while complete HPSI artifact compression decreased from 43.81× to 13.23×. Four-codebook in-memory matvec was about 4.69× slower at p50 than dense F32. The row-streamed HPSI path also measures selected 32-row windows and payload bytes read; those timings use an in-memory source, not physical storage. These are experimental measurements, **not** evidence of production model quality.
 
 See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](specs/002-direct-vq-matvec/plan.md), and [tasks](specs/002-direct-vq-matvec/tasks.md).
 
