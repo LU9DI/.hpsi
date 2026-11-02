@@ -223,7 +223,9 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
             candidate.conventional_projection_name
         );
     }
-    println!("note: candidates are not automatically imported; calibration must match the exact tensor name.");
+    println!(
+        "note: candidates are not automatically imported; calibration must match the exact tensor name."
+    );
     Ok(())
 }
 
