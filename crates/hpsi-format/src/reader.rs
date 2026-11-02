@@ -258,14 +258,17 @@ impl ModelReader {
     }
 }
 
-
 /// Verify zero-filled gaps among validated top-level regions with a caller budget.
 fn verify_padding_regions(
     source: &dyn RandomAccessSource,
     regions: &[crate::Region],
     max_bytes: u64,
 ) -> Result<u64> {
-    let mut active: Vec<_> = regions.iter().copied().filter(|region| !region.is_empty()).collect();
+    let mut active: Vec<_> = regions
+        .iter()
+        .copied()
+        .filter(|region| !region.is_empty())
+        .collect();
     active.sort_unstable_by_key(|region| region.offset);
 
     let mut gaps = Vec::new();
@@ -302,7 +305,6 @@ fn verify_padding_regions(
     }
     Ok(total)
 }
-
 
 fn read_region(
     source: &dyn RandomAccessSource,
