@@ -115,6 +115,12 @@ pub struct VqTensorNames<'a> {
     pub indices_name: &'a str,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct VqHpsiExportOptions<'a> {
+    pub block_rows: usize,
+    pub tensor_names: VqTensorNames<'a>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VqError(pub &'static str);
 
@@ -429,12 +435,14 @@ impl VqMatrix {
             rows,
             cols,
             config,
-            block_rows,
-            VqTensorNames {
-                codebook_id: 0,
-                codebook_name: "hpsi.vq.codebook",
-                indices_id: 1,
-                indices_name: "hpsi.vq.indices",
+            VqHpsiExportOptions {
+                block_rows,
+                tensor_names: VqTensorNames {
+                    codebook_id: 0,
+                    codebook_name: "hpsi.vq.codebook",
+                    indices_id: 1,
+                    indices_name: "hpsi.vq.indices",
+                },
             },
             read_elements,
         )
@@ -449,8 +457,7 @@ impl VqMatrix {
         rows: usize,
         cols: usize,
         config: VqConfig,
-        block_rows: usize,
-        tensor_names: VqTensorNames<'_>,
+        options: VqHpsiExportOptions<'_>,
         read_elements: F,
     ) -> Result<WriterStats, VqError>
     where
@@ -458,6 +465,10 @@ impl VqMatrix {
         S: Read + Write + Seek,
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
+        let VqHpsiExportOptions {
+            block_rows,
+            tensor_names,
+        } = options;
         if rows == 0 || cols == 0 || block_rows == 0 {
             return Err(VqError("matrix dimensions and block rows must be non-zero"));
         }
@@ -639,7 +650,7 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         activation_second_moment: &[f32],
-        mut read_elements: F,
+        read_elements: F,
         emit_row: E,
     ) -> Result<Vec<f32>, VqError>
     where
@@ -1710,12 +1721,14 @@ mod hpsi_streaming_export_tests {
                 codebook_count: 1,
                 beam_width: 2,
             },
-            1,
-            VqTensorNames {
-                codebook_id: 40,
-                codebook_name: "layer.weight.codebook",
-                indices_id: 41,
-                indices_name: "layer.weight.indices",
+            VqHpsiExportOptions {
+                block_rows: 1,
+                tensor_names: VqTensorNames {
+                    codebook_id: 40,
+                    codebook_name: "layer.weight.codebook",
+                    indices_id: 41,
+                    indices_name: "layer.weight.indices",
+                },
             },
             |offset, count| {
                 let start = offset as usize;
