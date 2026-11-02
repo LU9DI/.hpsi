@@ -11,6 +11,8 @@ pub struct VqConfig {
     /// Each codebook adds one 4-bit residual selector per 8-weight group.
     /// One through four additive codebooks are supported (0.5–2 bits/weight).
     pub codebook_count: usize,
+    /// Number of partial additive-code combinations retained during encoding.
+    pub beam_width: usize,
 }
 
 impl Default for VqConfig {
@@ -19,6 +21,7 @@ impl Default for VqConfig {
             iterations: 12,
             sample_limit: 65_536,
             codebook_count: 1,
+            beam_width: 8,
         }
     }
 }
@@ -69,6 +72,9 @@ impl VqMatrix {
                 "only one through four additive codebooks are supported",
             ));
         }
+        if !(1..=256).contains(&config.beam_width) {
+            return Err(VqError("beam width must be between 1 and 256"));
+        }
         if weights.iter().any(|value| !value.is_finite()) {
             return Err(VqError("matrix weights must be finite"));
         }
@@ -89,14 +95,7 @@ impl VqMatrix {
         for stage in 0..config.codebook_count {
             let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
                 .iter()
-                .map(|sample| {
-                    let mut residual = *sample;
-                    for codebook in &codebooks {
-                        let code = nearest_centroid(&residual, codebook);
-                        residual = subtract(&residual, &codebook[code]);
-                    }
-                    residual
-                })
+                .map(|sample| beam_search_additive(sample, &codebooks, config.beam_width).0)
                 .collect();
             // Residual stages reserve a zero centroid. Adding a stage therefore
             // cannot increase per-group reconstruction error in weight space.
@@ -117,13 +116,13 @@ impl VqMatrix {
             let start = group_index * GROUP_SIZE;
             let mut residual = [0.0_f32; GROUP_SIZE];
             residual.copy_from_slice(&weights[start..start + GROUP_SIZE]);
-            for (stage, codebook) in codebooks.iter().enumerate() {
-                let code = nearest_centroid(&residual, codebook) as u8;
+            let (_, codes) =
+                beam_search_additive(&residual, &codebooks, config.beam_width);
+            for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                 let selector = group_index * config.codebook_count + stage;
                 let byte_index = selector / 2;
                 let shift = (selector % 2) * 4;
-                packed_indices[byte_index] |= code << shift;
-                residual = subtract(&residual, &codebook[usize::from(code)]);
+                packed_indices[byte_index] |= *code << shift;
             }
         }
 
@@ -566,6 +565,35 @@ pub fn matvec_hpsi_rows(
     output: &mut [f32],
 ) -> Result<(), VqError> {
     HpsiVqExecutor::new(reader, layout)?.matvec_rows(input, first_row, output)
+}
+
+fn beam_search_additive(
+    vector: &[f32; GROUP_SIZE],
+    codebooks: &[Vec<[f32; GROUP_SIZE]>],
+    beam_width: usize,
+) -> ([f32; GROUP_SIZE], [u8; 4]) {
+    // Keep the best partial additive reconstructions after every stage.
+    let mut beam = vec![(0.0_f32, *vector, [0_u8; 4])];
+    for (stage, codebook) in codebooks.iter().enumerate() {
+        let mut expanded = Vec::with_capacity(beam.len() * codebook.len());
+        for (_, residual, codes) in &beam {
+            for (code, centroid) in codebook.iter().enumerate() {
+                let next_residual = subtract(residual, centroid);
+                let error = squared_distance(&next_residual, &[0.0; GROUP_SIZE]);
+                let mut next_codes = *codes;
+                next_codes[stage] = code as u8;
+                expanded.push((error, next_residual, next_codes));
+            }
+        }
+        expanded.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+        expanded.truncate(beam_width);
+        beam = expanded;
+    }
+    let (_, residual, codes) = beam
+        .into_iter()
+        .next()
+        .unwrap_or((0.0, *vector, [0; 4]));
+    (residual, codes)
 }
 
 fn fit_codebook(
