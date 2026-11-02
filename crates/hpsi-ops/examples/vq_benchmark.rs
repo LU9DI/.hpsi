@@ -438,22 +438,70 @@ fn main() {
         hpsi16_latency.2
     );
 
-    println!("single_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi4_latency.0);
-    println!("single_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi4_latency.1);
-    println!("single_file_hpsi_executor_init_ms: {:.6}", file_hpsi4_latency.3);
-    println!("single_file_hpsi_index_bytes_per_window: {}", file_hpsi4_latency.2);
-    println!("additive_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi8_latency.0);
-    println!("additive_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi8_latency.1);
-    println!("additive_file_hpsi_executor_init_ms: {:.6}", file_hpsi8_latency.3);
-    println!("additive_file_hpsi_index_bytes_per_window: {}", file_hpsi8_latency.2);
-    println!("three_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi12_latency.0);
-    println!("three_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi12_latency.1);
-    println!("three_file_hpsi_executor_init_ms: {:.6}", file_hpsi12_latency.3);
-    println!("three_file_hpsi_index_bytes_per_window: {}", file_hpsi12_latency.2);
-    println!("four_file_hpsi_row_window_p50_ms: {:.6}", file_hpsi16_latency.0);
-    println!("four_file_hpsi_row_window_p95_ms: {:.6}", file_hpsi16_latency.1);
-    println!("four_file_hpsi_executor_init_ms: {:.6}", file_hpsi16_latency.3);
-    println!("four_file_hpsi_index_bytes_per_window: {}", file_hpsi16_latency.2);
+    println!(
+        "single_file_hpsi_row_window_p50_ms: {:.6}",
+        file_hpsi4_latency.0
+    );
+    println!(
+        "single_file_hpsi_row_window_p95_ms: {:.6}",
+        file_hpsi4_latency.1
+    );
+    println!(
+        "single_file_hpsi_executor_init_ms: {:.6}",
+        file_hpsi4_latency.3
+    );
+    println!(
+        "single_file_hpsi_index_bytes_per_window: {}",
+        file_hpsi4_latency.2
+    );
+    println!(
+        "additive_file_hpsi_row_window_p50_ms: {:.6}",
+        file_hpsi8_latency.0
+    );
+    println!(
+        "additive_file_hpsi_row_window_p95_ms: {:.6}",
+        file_hpsi8_latency.1
+    );
+    println!(
+        "additive_file_hpsi_executor_init_ms: {:.6}",
+        file_hpsi8_latency.3
+    );
+    println!(
+        "additive_file_hpsi_index_bytes_per_window: {}",
+        file_hpsi8_latency.2
+    );
+    println!(
+        "three_file_hpsi_row_window_p50_ms: {:.6}",
+        file_hpsi12_latency.0
+    );
+    println!(
+        "three_file_hpsi_row_window_p95_ms: {:.6}",
+        file_hpsi12_latency.1
+    );
+    println!(
+        "three_file_hpsi_executor_init_ms: {:.6}",
+        file_hpsi12_latency.3
+    );
+    println!(
+        "three_file_hpsi_index_bytes_per_window: {}",
+        file_hpsi12_latency.2
+    );
+    println!(
+        "four_file_hpsi_row_window_p50_ms: {:.6}",
+        file_hpsi16_latency.0
+    );
+    println!(
+        "four_file_hpsi_row_window_p95_ms: {:.6}",
+        file_hpsi16_latency.1
+    );
+    println!(
+        "four_file_hpsi_executor_init_ms: {:.6}",
+        file_hpsi16_latency.3
+    );
+    println!(
+        "four_file_hpsi_index_bytes_per_window: {}",
+        file_hpsi16_latency.2
+    );
 
     drop((file_reader4, file_reader8, file_reader12, file_reader16));
     for path in [file_path4, file_path8, file_path12, file_path16] {
