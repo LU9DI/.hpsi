@@ -551,3 +551,16 @@ Official references:
 - Reporting theoretical storage estimates as measured model-quality results.
 
 The first release succeeds when it proves one carefully scoped operation, from a real HPSI artifact, with validated random access, bounded memory, no full source-tensor reconstruction, and independently reproducible quality/performance measurements.
+
+
+## Current engineering baseline — Feature 001
+
+The first implementation slice is now specified on branch `feat/hpsi-core-container`:
+
+- [Engineering constitution](.specify/memory/constitution.md)
+- [Feature 001 specification](specs/001-hpsi-core-container/spec.md)
+- [Implementation plan](specs/001-hpsi-core-container/plan.md)
+- [Implementation task checklist](specs/001-hpsi-core-container/tasks.md)
+- [HPSI binary format v0.1 draft](docs/format-v0.1.md)
+
+**Important:** these are design and acceptance artifacts, not a claim that the reader, writer, CLI, or codecs have already been implemented. Feature 001 deliberately isolates container correctness and safe random access from compression algorithms and inference kernels.
