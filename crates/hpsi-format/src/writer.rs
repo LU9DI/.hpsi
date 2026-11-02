@@ -44,6 +44,11 @@ pub struct WriterStats {
 /// emitted sequentially; no second full-model payload buffer is constructed.
 pub struct ModelWriter;
 
+const MAX_WRITER_TENSORS: usize = 250_000;
+const MAX_WRITER_BLOCKS: usize = 1_000_000;
+const MAX_WRITER_METADATA_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WRITER_DIRECTORY_BYTES: u64 = 256 * 1024 * 1024;
+
 impl ModelWriter {
     /// Stream tensor payload blocks directly to the output.
     ///
@@ -81,7 +86,7 @@ impl ModelWriter {
                 "writer requires an empty output stream",
             ));
         }
-        if tensors.is_empty() || tensors.len() > u32::MAX as usize {
+        if tensors.is_empty() || tensors.len() > MAX_WRITER_TENSORS || tensors.len() > u32::MAX as usize {
             return Err(FormatError::InvalidTensor(
                 "writer requires a valid non-empty tensor set",
             ));
@@ -130,7 +135,7 @@ impl ModelWriter {
             }
             names.push(tensor.name.clone());
         }
-        if block_count > u32::MAX as usize {
+        if block_count > MAX_WRITER_BLOCKS || block_count > u32::MAX as usize {
             return Err(FormatError::LimitExceeded("writer block count"));
         }
 
@@ -153,6 +158,9 @@ impl ModelWriter {
         metadata_object.insert("tensor_names".into(), json!(names));
         let metadata = serde_json::to_vec(&metadata_value)
             .map_err(|error| FormatError::Io(error.to_string()))?;
+        if metadata.len() > MAX_WRITER_METADATA_BYTES {
+            return Err(FormatError::LimitExceeded("writer metadata bytes"));
+        }
         crate::Metadata::parse(&metadata, &ReaderLimits::default())?;
         let metadata_off = 128_u64;
         let tensor_off = align8(
@@ -188,6 +196,10 @@ impl ModelWriter {
                 .ok_or(FormatError::ArithmeticOverflow(
                     "integrity directory length",
                 ))?;
+        let total_directory_bytes = tensor_len.checked_add(block_len).and_then(|v| v.checked_add(integrity_len)).ok_or(FormatError::ArithmeticOverflow("total writer directory length"))?;
+        if total_directory_bytes > MAX_WRITER_DIRECTORY_BYTES {
+            return Err(FormatError::LimitExceeded("writer total directory bytes"));
+        }
         let payload_off = align8(
             integrity_off
                 .checked_add(integrity_len)
@@ -285,18 +297,18 @@ impl ModelWriter {
         pad_to(out, block_off)?;
         out.write_all(&block_dir).map_err(ioerr)?;
         pad_to(out, integrity_off)?;
-        let mut empty_integrity = vec![
-            0_u8;
-            usize::try_from(integrity_len).map_err(|_| {
-                FormatError::LimitExceeded("integrity directory allocation")
-            })?
-        ];
         let mut metadata_record = [0_u8; 32];
         put32(&mut metadata_record, 0, 1);
         put16(&mut metadata_record, 8, 1);
         put32(&mut metadata_record, 12, crc32c(&metadata));
-        empty_integrity[..32].copy_from_slice(&metadata_record);
-        out.write_all(&empty_integrity).map_err(ioerr)?;
+        out.write_all(&metadata_record).map_err(ioerr)?;
+        let zeroes = [0_u8; 64 * 1024];
+        let mut remaining_integrity = integrity_len.checked_sub(32).ok_or(FormatError::ArithmeticOverflow("integrity directory remainder"))?;
+        while remaining_integrity > 0 {
+            let count = remaining_integrity.min(zeroes.len() as u64) as usize;
+            out.write_all(&zeroes[..count]).map_err(ioerr)?;
+            remaining_integrity -= count as u64;
+        }
         pad_to(out, payload_off)?;
 
         let mut integrity_index = 1_u64;
