@@ -4,9 +4,19 @@ use hpsi_format::{
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static VQ_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn open_vq_temporary_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(path)
+}
 
 struct TemporarySpool {
     path: PathBuf,
@@ -22,12 +32,7 @@ impl TemporarySpool {
                 ".hpsi-vq-spool-{}-{sequence}.tmp",
                 std::process::id()
             ));
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match open_vq_temporary_file(&path) {
                 Ok(file) => {
                     return Ok(Self {
                         path,
@@ -1576,6 +1581,17 @@ fn nearest_centroid(vector: &[f32; GROUP_SIZE], centroids: &[[f32; GROUP_SIZE]])
 #[cfg(test)]
 mod payload_block_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn vq_temporary_spool_is_created_with_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let spool = TemporarySpool::create().unwrap();
+        let mode = fs::metadata(&spool.path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
 
     #[test]
     fn splits_payload_without_losing_bytes() {
