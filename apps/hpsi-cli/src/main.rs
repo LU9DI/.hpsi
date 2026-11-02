@@ -223,8 +223,8 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     }
 
     let source = Arc::new(FileSource::open(source_path).map_err(|e| e.to_string())?);
-    let safetensors = hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024)
-        .map_err(|e| e.to_string())?;
+    let safetensors =
+        hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024).map_err(|e| e.to_string())?;
     let policy = if reject_raw {
         UnsupportedTensorPolicy::Reject
     } else {
@@ -234,7 +234,10 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     if let Some(directory) = calibration_dir {
         let mut files = Vec::new();
         for entry in fs::read_dir(directory).map_err(|e| {
-            format!("cannot read calibration directory {}: {e}", directory.display())
+            format!(
+                "cannot read calibration directory {}: {e}",
+                directory.display()
+            )
         })? {
             let entry = entry.map_err(|e| e.to_string())?;
             let file_type = entry.file_type().map_err(|e| e.to_string())?;
@@ -262,12 +265,8 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     }
 
     let stats = if calibration_dir.is_some() {
-        let plan = ModelImportPlan::build_with_provenance(
-            &safetensors,
-            &calibrations,
-            policy,
-        )
-        .map_err(|e| e.to_string())?;
+        let plan = ModelImportPlan::build_with_provenance(&safetensors, &calibrations, policy)
+            .map_err(|e| e.to_string())?;
         write_model_import_to_hpsi_path_calibrated(
             &safetensors,
             &plan,
@@ -277,16 +276,9 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?
     } else {
-        let plan = ModelImportPlan::build(&safetensors, &[], policy)
-            .map_err(|e| e.to_string())?;
-        write_model_import_to_hpsi_path(
-            &safetensors,
-            &plan,
-            destination,
-            VqConfig::default(),
-            128,
-        )
-        .map_err(|e| e.to_string())?
+        let plan = ModelImportPlan::build(&safetensors, &[], policy).map_err(|e| e.to_string())?;
+        write_model_import_to_hpsi_path(&safetensors, &plan, destination, VqConfig::default(), 128)
+            .map_err(|e| e.to_string())?
     };
     println!("OK: imported {} HPSI tensors", stats.tensor_count);
     println!("calibration_files: {}", calibrations.len());
