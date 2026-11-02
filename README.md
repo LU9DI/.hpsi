@@ -630,6 +630,33 @@ See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](spec
 
 The current synthetic VQ experiment demonstrates direct computation over packed selectors and a tunable quality/encode-time tradeoff. The four-codebook, beam-width-4 configuration reaches 0.303442 held-out relative L2 error with a 19,808-byte HPSI artifact on a 256 × 256 matrix. This error is still too high to claim useful model fidelity. See [the full benchmark report](docs/benchmark-vq.md) for the beam sweep, latency measurements, and limitations.
 
+## Importing Safetensors models
+
+The `hpsi-ops` crate provides a multi-tensor Safetensors importer. It validates the
+source header and tensor ranges without loading the complete model payload, then
+builds one deterministic import plan covering every source tensor.
+
+- Rank-2 `F32`, `F16`, and `BF16` tensors that meet the VQ group and packed-row
+  alignment requirements can be quantized into HPSI VQ tensors.
+- Other supported, non-scalar and non-empty tensors can be preserved byte-for-byte
+  with `UnsupportedTensorPolicy::AllowRawPreservation`, or rejected with
+  `UnsupportedTensorPolicy::Reject`.
+- All 22 Safetensors dtypes currently recognized by the reader are covered by
+  round-trip payload-preservation tests. Dtypes without a native HPSI scalar
+  representation use `OPAQUE`; this preserves bytes, not numeric semantics.
+- The import metadata records each source tensor's name, original dtype, original
+  shape, and whether it was quantized or preserved raw.
+
+The main APIs are `ModelImportPlan::build`,
+`write_model_import_to_hpsi`, and
+`write_model_import_to_hpsi_path`. The path API reopens and verifies the finished
+artifact before publishing it without replacing an existing destination. The
+generic seekable-writer API may leave partial output on error. Scalar and
+zero-sized source tensors are currently rejected; sharded model indexes and
+automatic architecture-specific tensor mapping are not yet supported. See the
+[full-model import contract](docs/full-model-safetensors-import-design.md) for
+the exact eligibility, dtype, calibration, and publication rules.
+
 ## Activation calibration input
 
 The CLI can calculate diagonal second moments from a rank-2 F32 activation tensor already stored in an HPSI artifact, reading one payload block at a time:
