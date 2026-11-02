@@ -1041,10 +1041,12 @@ mod streaming_writer_tests {
             std::io::ErrorKind::AlreadyExists
         );
         assert_eq!(std::fs::read(&target).unwrap(), b"preserve target");
-        assert!(std::fs::symlink_metadata(&candidate)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            std::fs::symlink_metadata(&candidate)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
 
         std::fs::remove_file(&candidate).unwrap();
         std::fs::remove_file(&target).unwrap();
@@ -1072,10 +1074,12 @@ mod streaming_writer_tests {
 
         assert!(result.is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"preserve target");
-        assert!(std::fs::symlink_metadata(&destination)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            std::fs::symlink_metadata(&destination)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 2);
 
         std::fs::remove_file(&destination).unwrap();
