@@ -253,13 +253,7 @@ impl SafeTensorFile {
             let bits_per_element = match dtype.as_str() {
                 "F4" => 4_u64,
                 "F6_E2M3" | "F6_E3M2" => 6,
-                "BOOL"
-                | "U8"
-                | "I8"
-                | "F8_E5M2"
-                | "F8_E4M3"
-                | "F8_E8M0"
-                | "F8_E4M3FNUZ"
+                "BOOL" | "U8" | "I8" | "F8_E5M2" | "F8_E4M3" | "F8_E8M0" | "F8_E4M3FNUZ"
                 | "F8_E5M2FNUZ" => 8,
                 "I16" | "U16" | "F16" | "BF16" => 16,
                 "I32" | "U32" | "F32" => 32,
@@ -630,13 +624,16 @@ mod tests {
             bytes.extend_from_slice(header.as_bytes());
             bytes.extend_from_slice(&payload);
 
-            let file = SafeTensorFile::open(
-                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                4096,
-            )
-            .unwrap_or_else(|error| panic!("reference dtype {dtype} was rejected: {error}"));
+            let file =
+                SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                    .unwrap_or_else(|error| {
+                        panic!("reference dtype {dtype} was rejected: {error}")
+                    });
             let mut copied = Vec::new();
-            assert_eq!(file.copy_raw_payload("tensor", &mut copied, 3).unwrap(), payload_len as u64);
+            assert_eq!(
+                file.copy_raw_payload("tensor", &mut copied, 3).unwrap(),
+                payload_len as u64
+            );
             assert_eq!(copied, payload, "raw payload changed for dtype {dtype}");
         }
     }
@@ -644,21 +641,23 @@ mod tests {
     #[test]
     fn rejects_misaligned_sub_byte_safetensors_payloads() {
         for dtype in ["F4", "F6_E2M3", "F6_E3M2"] {
-            let header = format!(
-                r#"{{"tensor":{{"dtype":"{dtype}","shape":[1],"data_offsets":[0,1]}}}}"#
-            );
+            let header =
+                format!(r#"{{"tensor":{{"dtype":"{dtype}","shape":[1],"data_offsets":[0,1]}}}}"#);
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
             bytes.extend_from_slice(header.as_bytes());
             bytes.push(0);
 
-            assert!(matches!(
-                SafeTensorFile::open(
-                    Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                    4096,
+            assert!(
+                matches!(
+                    SafeTensorFile::open(
+                        Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+                        4096,
+                    ),
+                    Err(SafeTensorError::InvalidTensor)
                 ),
-                Err(SafeTensorError::InvalidTensor)
-            ), "misaligned dtype {dtype} should be rejected");
+                "misaligned dtype {dtype} should be rejected"
+            );
         }
     }
 
