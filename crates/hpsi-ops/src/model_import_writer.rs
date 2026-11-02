@@ -160,7 +160,6 @@ pub fn write_model_import_to_hpsi_path(
         }
         Ok(stats)
     })();
-    drop(temporary_file);
     let _ = fs::remove_file(&temporary_path);
     result
 }
