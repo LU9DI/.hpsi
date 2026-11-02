@@ -10,6 +10,7 @@ mod integrity;
 mod limits;
 mod metadata;
 mod region;
+mod reader;
 mod source;
 mod tensor;
 
@@ -20,5 +21,6 @@ pub use integrity::{IntegrityRecord, IntegrityTarget};
 pub use limits::ReaderLimits;
 pub use metadata::Metadata;
 pub use region::{Region, validate_regions};
+pub use reader::{BlockData, ModelReader, ReaderStats};
 pub use source::{FileSource, MemorySource, RandomAccessSource};
 pub use tensor::{DType, TensorDescriptor};
