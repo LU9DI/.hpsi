@@ -149,3 +149,20 @@ The additive encoder was extended with beam search. At each residual stage, it e
 **Decision:** set the default beam width to **4**. It produced the lowest held-out error in this sweep and was about 3.24× faster to encode than width 16. Wider search did not improve this particular training run: codebook fitting is a non-convex process, and each beam width changes the residual distribution used to train later stages. The runtime matvec latency remains essentially unchanged because the beam search is an encoder-only operation; the stored format and direct compute kernel are unchanged.
 
 The default four-codebook run with beam width 4 reported held-out relative L2 error 0.303442, compared with 0.346410 from the earlier greedy additive baseline. This is a measurable improvement, but 0.303 is still a substantial approximation error. These results are from one synthetic matrix and one CI runner; they do not establish transformer-model quality. Next experiments should include repeated seeds, real weight tensors, layer-wise activation-weighted error, and an explicit encode-time budget.
+
+### Activation-aware VQ — CI run #121
+
+Run: [GitHub Actions #121](https://github.com/LU9DI/.hpsi/actions/runs/41375313621)
+
+The encoder now exposes `VqMatrix::encode_activation_aware`, which accepts one positive finite second-moment importance value per input column. Because this implementation shares codebooks across all 8-value groups, it averages importance by within-group position, scales training vectors by the square root of that importance, performs codebook fitting and beam selector search in the weighted space, then unscales the stored centroids. The direct matvec representation and runtime kernel remain unchanged.
+
+The benchmark generated 16 deterministic activation vectors with an intentionally non-uniform input-column variance (every eighth column has higher energy), computed their diagonal second moments, and compared four-codebook quantizers using the resulting weighted reconstruction objective:
+
+| Metric | Ordinary VQ | Activation-aware VQ |
+|---|---:|---:|
+| Activation-weighted relative L2 error | 0.315561 | **0.132088** |
+| VQ representation bytes | 18,432 | 18,432 |
+
+Activation-aware fitting reduced this synthetic weighted error by approximately 58.1% without increasing representation size. Encoding took 87.948 ms for the activation-aware case in this CI run. The comparison is a controlled synthetic proof of the mechanism, not a claim about real transformer quality: importance was diagonal-only, shared across group positions, and generated from synthetic activations. It does not model cross-column covariance, attention interactions, layer normalization, residual pathways, or downstream task quality.
+
+The implementation validates importance length, finiteness, and strict positivity. Tests verify that high-importance dimensions receive lower weighted reconstruction error and that invalid importance vectors are rejected. Next, evaluate on captured calibration activations and real model layers, and compare layer-output error and downstream perplexity/task metrics.
