@@ -794,7 +794,6 @@ fn create_temporary_file(parent: &Path) -> Result<(std::path::PathBuf, std::fs::
     ))
 }
 
-
 impl ModelWriter {
     /// Stream, sync, reopen, and verify an artifact before publication.
     /// Existing destinations are never overwritten. A parent-directory sync failure
