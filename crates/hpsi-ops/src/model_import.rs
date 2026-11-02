@@ -67,13 +67,17 @@ impl ModelImportPlan {
                 return Err(VqError("duplicate activation calibration layer name"));
             }
         }
-        let mut names: Vec<_> = source.tensors().iter().collect();
+        let mut names = Vec::new();
+        names
+            .try_reserve_exact(source.tensors().len())
+            .map_err(|_| VqError("could not allocate source tensor ordering"))?;
+        names.extend(source.tensors().iter());
         names.sort_by(|a, b| a.name.cmp(&b.name));
-        let source_names: HashSet<&str> = source
-            .tensors()
-            .iter()
-            .map(|tensor| tensor.name.as_str())
-            .collect();
+        let mut source_names: HashSet<&str> = HashSet::new();
+        source_names
+            .try_reserve(source.tensors().len())
+            .map_err(|_| VqError("could not allocate source tensor name index"))?;
+        source_names.extend(source.tensors().iter().map(|tensor| tensor.name.as_str()));
         if calibration_by_name
             .keys()
             .any(|layer_name| !source_names.contains(layer_name))
@@ -82,8 +86,18 @@ impl ModelImportPlan {
                 "activation calibration references a tensor absent from the source model",
             ));
         }
+        let generated_name_capacity = names
+            .len()
+            .checked_mul(2)
+            .ok_or(VqError("generated tensor name count overflow"))?;
         let mut generated_names = HashSet::new();
-        let mut tensors = Vec::with_capacity(names.len());
+        generated_names
+            .try_reserve(generated_name_capacity)
+            .map_err(|_| VqError("could not allocate generated tensor name index"))?;
+        let mut tensors = Vec::new();
+        tensors
+            .try_reserve_exact(names.len())
+            .map_err(|_| VqError("could not allocate model import tensor plan"))?;
 
         for tensor in names {
             if tensor.shape.is_empty() || tensor.shape.len() > 8 || tensor.shape.contains(&0) {
@@ -138,7 +152,17 @@ impl ModelImportPlan {
                 };
                 let activation_second_moment = calibration_by_name
                     .get(tensor.name.as_str())
-                    .map(|calibration| calibration.activation_second_moment.clone());
+                    .map(|calibration| {
+                        let mut values = Vec::new();
+                        values
+                            .try_reserve_exact(calibration.activation_second_moment.len())
+                            .map_err(|_| {
+                                VqError("could not allocate activation calibration copy")
+                            })?;
+                        values.extend_from_slice(&calibration.activation_second_moment);
+                        Ok(values)
+                    })
+                    .transpose()?;
                 (
                     TensorDisposition::QuantizeVq,
                     Some(codebook),
