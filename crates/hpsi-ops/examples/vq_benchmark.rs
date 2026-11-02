@@ -25,9 +25,7 @@ fn make_weights() -> Vec<f32> {
 
 fn benchmark_shape_weights(rows: usize, cols: usize, seed: u64) -> Vec<f32> {
     let mut state = seed;
-    (0..rows * cols)
-        .map(|_| next_value(&mut state))
-        .collect()
+    (0..rows * cols).map(|_| next_value(&mut state)).collect()
 }
 
 fn dense_matvec_shape(
@@ -46,12 +44,7 @@ fn dense_matvec_shape(
     }
 }
 
-fn measure_dense_shape(
-    weights: &[f32],
-    rows: usize,
-    cols: usize,
-    input: &[f32],
-) -> (f64, f64) {
+fn measure_dense_shape(weights: &[f32], rows: usize, cols: usize, input: &[f32]) -> (f64, f64) {
     let mut output = vec![0.0_f32; rows];
     let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
     for _ in 0..LATENCY_REPETITIONS {
@@ -71,7 +64,10 @@ fn measure_vq_shape(matrix: &VqMatrix, input: &[f32]) -> (f64, f64) {
     let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
     for _ in 0..LATENCY_REPETITIONS {
         let start = Instant::now();
-        matrix.view().matvec(input, &mut output).expect("valid VQ shape");
+        matrix
+            .view()
+            .matvec(input, &mut output)
+            .expect("valid VQ shape");
         durations.push(start.elapsed());
         black_box(output[0]);
     }
@@ -85,11 +81,7 @@ fn benchmark_row_scaling() {
     const COLS: usize = 256;
     println!("row_scaling_cols: {COLS}");
     for rows in [16, 64, 256, 1024] {
-        let weights = benchmark_shape_weights(
-            rows,
-            COLS,
-            0x5343_414c_4500_0000_u64 + rows as u64,
-        );
+        let weights = benchmark_shape_weights(rows, COLS, 0x5343_414c_4500_0000_u64 + rows as u64);
         let input = make_input(0x5343_414c_494e_5055_u64 + rows as u64);
         let dense = measure_dense_shape(&weights, rows, COLS, &input);
         println!("scaling_rows_{rows}_dense_p50_ms: {:.6}", dense.0);
@@ -107,14 +99,8 @@ fn benchmark_row_scaling() {
             )
             .expect("valid row-scaling matrix");
             let vq = measure_vq_shape(&matrix, &input);
-            println!(
-                "scaling_rows_{rows}_vq{codebook_count}_p50_ms: {:.6}",
-                vq.0
-            );
-            println!(
-                "scaling_rows_{rows}_vq{codebook_count}_p95_ms: {:.6}",
-                vq.1
-            );
+            println!("scaling_rows_{rows}_vq{codebook_count}_p50_ms: {:.6}", vq.0);
+            println!("scaling_rows_{rows}_vq{codebook_count}_p95_ms: {:.6}", vq.1);
         }
     }
 }
