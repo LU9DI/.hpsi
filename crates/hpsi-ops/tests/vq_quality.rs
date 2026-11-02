@@ -68,7 +68,10 @@ fn quality_metrics_are_finite_and_storage_is_smaller_than_dense_f32() {
     let matrix = VqMatrix::encode(&weights, rows, cols, config).expect("encode fixture");
     let relative_error = relative_output_error(&matrix, &weights, rows, cols);
 
-    assert!(relative_error.is_finite(), "relative output error must be finite");
+    assert!(
+        relative_error.is_finite(),
+        "relative output error must be finite"
+    );
     assert!(relative_error >= 0.0);
     assert!(
         matrix.stored_bytes() < matrix.dense_f32_bytes(),
