@@ -479,18 +479,8 @@ fn validate_directories(
                     "RAW payload length must equal logical length",
                 ));
             }
-            if let Some(reference) = block.auxiliary_ref {
-                let target_id = u32::try_from(reference).map_err(|_| {
-                    FormatError::InvalidReference(
-                        "block auxiliary tensor ID exceeds the supported ID width",
-                    )
-                })?;
-                if !lookup.contains_key(&target_id) {
-                    return Err(FormatError::InvalidReference(
-                        "block auxiliary tensor does not exist",
-                    ));
-                }
-            }
+            // Auxiliary references are resolved once by the descriptor-based
+            // graph walk below, which also checks missing targets and cycles.
         }
         if expected_logical_offset != tensor.logical_nbytes {
             return Err(FormatError::InvalidDirectory(
@@ -1008,6 +998,19 @@ mod tests {
             validate_acyclic_references(&auxiliary_cycle, &blocks, &lookup),
             Err(FormatError::InvalidReference(
                 "cyclic auxiliary tensor references"
+            ))
+        ));
+    }
+
+    #[test]
+    fn descriptor_reference_walk_rejects_missing_auxiliary_target() {
+        let tensors = [graph_tensor(10, 0, 1, None)];
+        let blocks = [graph_block(10, 0, Some(99))];
+        let lookup = HashMap::from([(10, 0)]);
+        assert!(matches!(
+            validate_acyclic_references(&tensors, &blocks, &lookup),
+            Err(FormatError::InvalidReference(
+                "block auxiliary reference is missing"
             ))
         ));
     }
