@@ -1068,7 +1068,11 @@ mod tests {
 
     #[test]
     fn payload_range_validation_accepts_adjacency_and_empty_ranges() {
-        let blocks = [payload_block(100, 10), payload_block(110, 5), payload_block(115, 0)];
+        let blocks = [
+            payload_block(100, 10),
+            payload_block(110, 5),
+            payload_block(115, 0),
+        ];
         assert!(validate_payload_ranges(&blocks).is_ok());
     }
 
@@ -1081,7 +1085,9 @@ mod tests {
         ];
         assert!(matches!(
             validate_payload_ranges(&blocks),
-            Err(FormatError::InvalidDirectory("block payload ranges overlap"))
+            Err(FormatError::InvalidDirectory(
+                "block payload ranges overlap"
+            ))
         ));
     }
 
@@ -1090,7 +1096,9 @@ mod tests {
         let blocks = [payload_block(100, 10), payload_block(100, 5)];
         assert!(matches!(
             validate_payload_ranges(&blocks),
-            Err(FormatError::InvalidDirectory("block payload ranges overlap"))
+            Err(FormatError::InvalidDirectory(
+                "block payload ranges overlap"
+            ))
         ));
     }
 
