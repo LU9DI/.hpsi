@@ -156,7 +156,10 @@ fn activation_aware_vq_rejects_invalid_importance() {
     let mut inactive = vec![1.0_f32; 16];
     inactive[0] = 0.0;
     let encoded = VqMatrix::encode_activation_aware(&weights, 8, 16, config, &inactive);
-    assert!(encoded.is_ok(), "zero-moment feature should remain valid calibration data");
+    assert!(
+        encoded.is_ok(),
+        "zero-moment feature should remain valid calibration data"
+    );
 }
 
 #[test]
