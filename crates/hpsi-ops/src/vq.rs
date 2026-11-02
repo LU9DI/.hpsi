@@ -340,6 +340,33 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         block_rows: usize,
+        read_elements: F,
+    ) -> Result<WriterStats, VqError>
+    where
+        W: Write + Seek,
+        S: Read + Write + Seek,
+        F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+    {
+        Self::encode_from_reader_to_hpsi_named(
+            out, spool, rows, cols, config, block_rows,
+            0, "hpsi.vq.codebook", 1, "hpsi.vq.indices", read_elements,
+        )
+    }
+
+    /// Same bounded-memory encoder with caller-selected tensor IDs and names.
+    /// This lets a higher-level model importer assign globally unique IDs and
+    /// source-derived names when several VQ matrices share one HPSI artifact.
+    pub fn encode_from_reader_to_hpsi_named<W, S, F>(
+        out: &mut W,
+        spool: &mut S,
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        block_rows: usize,
+        codebook_tensor_id: u32,
+        codebook_tensor_name: &str,
+        indices_tensor_id: u32,
+        indices_tensor_name: &str,
         mut read_elements: F,
     ) -> Result<WriterStats, VqError>
     where
@@ -397,8 +424,8 @@ impl VqMatrix {
             .ok_or(VqError("selector stream size overflow"))?;
         let tensors = vec![
             StreamingTensorInput {
-                tensor_id: 0,
-                name: "hpsi.vq.codebook".into(),
+                tensor_id: codebook_tensor_id,
+                name: codebook_tensor_name.into(),
                 dtype: DType::F32,
                 dimensions: vec![
                     config.codebook_count as u64,
@@ -408,8 +435,8 @@ impl VqMatrix {
                 block_lengths: vec![codebook_len],
             },
             StreamingTensorInput {
-                tensor_id: 1,
-                name: "hpsi.vq.indices".into(),
+                tensor_id: indices_tensor_id,
+                name: indices_tensor_name.into(),
                 dtype: DType::Opaque,
                 dimensions: vec![index_bytes as u64],
                 block_lengths: index_block_lengths,
