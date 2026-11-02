@@ -371,7 +371,7 @@ impl ModelWriter {
                 "writer requires an empty output stream",
             ));
         }
-        if tensors.is_empty() || tensors.len() > u32::MAX as usize {
+        if tensors.is_empty() || tensors.len() > MAX_WRITER_TENSORS || tensors.len() > u32::MAX as usize {
             return Err(FormatError::InvalidTensor(
                 "writer requires a valid non-empty tensor set",
             ));
@@ -422,13 +422,16 @@ impl ModelWriter {
             }
             names.push(t.name.clone());
         }
-        if block_count > u32::MAX as usize {
+        if block_count > MAX_WRITER_BLOCKS || block_count > u32::MAX as usize {
             return Err(FormatError::LimitExceeded("writer block count"));
         }
 
         let metadata =
             serde_json::to_vec(&json!({"format":"hpsi","metadata_version":1,"tensor_names":names}))
                 .map_err(|e| FormatError::Io(e.to_string()))?;
+        if metadata.len() > MAX_WRITER_METADATA_BYTES {
+            return Err(FormatError::LimitExceeded("writer metadata bytes"));
+        }
         let metadata_off = 128u64;
         let metadata_end = metadata_off
             .checked_add(metadata.len() as u64)
@@ -469,6 +472,10 @@ impl ModelWriter {
                 .checked_add(integrity_len)
                 .ok_or(FormatError::ArithmeticOverflow("integrity directory"))?,
         )?;
+        let total_directory_bytes = tensor_len.checked_add(block_len).and_then(|v| v.checked_add(integrity_len)).ok_or(FormatError::ArithmeticOverflow("total writer directory length"))?;
+        if total_directory_bytes > MAX_WRITER_DIRECTORY_BYTES {
+            return Err(FormatError::LimitExceeded("writer total directory bytes"));
+        }
         let file_size = payload_off
             .checked_add(payload_bytes)
             .ok_or(FormatError::ArithmeticOverflow("file size"))?;
