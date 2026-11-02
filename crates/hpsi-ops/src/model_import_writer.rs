@@ -6,6 +6,7 @@ use hpsi_format::{DType, ModelWriter, StreamingTensorInput, WriterStats};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -95,11 +96,72 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     config: VqConfig,
     block_rows: usize,
 ) -> Result<WriterStats, VqError> {
-    if block_rows == 0 || plan.tensors.is_empty() {
-        return Err(VqError(
-            "model import requires tensors and non-zero block rows",
-        ));
+    if block_rows == 0 || plan.tensors.is_empty() || plan.tensors.len() != source.tensors().len() {
+        return Err(VqError("model import plan must cover every source tensor and use non-zero block rows"));
     }
+
+    // The plan is a public data structure and may have been constructed or
+    // modified by a caller. Revalidate its full source coverage, ordering,
+    // disposition fields and generated names before creating temporary files.
+    let mut source_names = HashSet::with_capacity(source.tensors().len());
+    for info in source.tensors() {
+        if !source_names.insert(info.name.as_str()) {
+            return Err(VqError("source tensor names are not unique"));
+        }
+    }
+    let mut planned_names = HashSet::with_capacity(plan.tensors.len());
+    let mut generated_names = HashSet::with_capacity(plan.tensors.len().saturating_mul(2));
+    let mut previous_name: Option<&str> = None;
+    for planned in &plan.tensors {
+        if previous_name.is_some_and(|previous| previous >= planned.source_name.as_str()) {
+            return Err(VqError("import plan must be uniquely sorted by source name"));
+        }
+        previous_name = Some(&planned.source_name);
+        if !planned_names.insert(planned.source_name.as_str()) || !source_names.contains(planned.source_name.as_str()) {
+            return Err(VqError("import plan contains duplicate or unknown source tensor names"));
+        }
+        let info = source.tensors().iter().find(|item| item.name == planned.source_name)
+            .ok_or(VqError("import plan references a missing source tensor"))?;
+        if info.dtype != planned.source_dtype || info.shape != planned.source_shape {
+            return Err(VqError("import plan no longer matches source tensor metadata"));
+        }
+        match planned.disposition {
+            TensorDisposition::QuantizeVq => {
+                if info.shape.len() != 2 || info.shape[1] % GROUP_SIZE as u64 != 0
+                    || !matches!(info.dtype.as_str(), "F32" | "F16" | "BF16") {
+                    return Err(VqError("planned VQ tensor is not eligible for quantization"));
+                }
+                let codebook = planned.codebook_name.as_deref()
+                    .ok_or(VqError("VQ plan has no codebook name"))?;
+                let indices = planned.indices_name.as_deref()
+                    .ok_or(VqError("VQ plan has no indices name"))?;
+                if codebook.is_empty() || indices.is_empty() || codebook == indices
+                    || source_names.contains(codebook) || source_names.contains(indices)
+                    || !generated_names.insert(codebook) || !generated_names.insert(indices) {
+                    return Err(VqError("VQ plan contains invalid or colliding generated names"));
+                }
+                if let Some(moment) = planned.activation_second_moment.as_deref() {
+                    if moment.len() != info.shape[1] as usize
+                        || moment.iter().any(|value| !value.is_finite() || *value < 0.0)
+                        || !planned.calibration_samples.is_some_and(|samples| samples > 0) {
+                        return Err(VqError("VQ plan contains invalid activation calibration"));
+                    }
+                } else if planned.calibration_samples.is_some() {
+                    return Err(VqError("VQ calibration sample count has no activation moments"));
+                }
+            }
+            TensorDisposition::PreserveRaw => {
+                if planned.codebook_name.is_some() || planned.indices_name.is_some()
+                    || planned.calibration_samples.is_some() || planned.activation_second_moment.is_some() {
+                    return Err(VqError("raw-preserved tensor must not carry VQ metadata"));
+                }
+            }
+        }
+    }
+    if planned_names.len() != source_names.len() {
+        return Err(VqError("import plan does not cover the complete source tensor set"));
+    }
+
     let mut spool = ImportSpool::create()?;
     let mut tensors = Vec::<StreamingTensorInput>::new();
     let mut block_offsets = Vec::<Vec<u64>>::new();
