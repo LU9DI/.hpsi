@@ -65,7 +65,9 @@ impl VqMatrix {
             ));
         }
         if !(1..=4).contains(&config.codebook_count) {
-            return Err(VqError("only one through four additive codebooks are supported"));
+            return Err(VqError(
+                "only one through four additive codebooks are supported",
+            ));
         }
         if weights.iter().any(|value| !value.is_finite()) {
             return Err(VqError("matrix weights must be finite"));
@@ -98,11 +100,7 @@ impl VqMatrix {
                 .collect();
             // Residual stages reserve a zero centroid. Adding a stage therefore
             // cannot increase per-group reconstruction error in weight space.
-            let codebook = fit_codebook(
-                &residual_samples,
-                config.iterations,
-                stage != 0,
-            )?;
+            let codebook = fit_codebook(&residual_samples, config.iterations, stage != 0)?;
             codebooks.push(codebook);
         }
 
