@@ -15,5 +15,6 @@
 - [x] T013 Test partial row windows, repeated calls without codebook reload, and windows crossing index-block boundaries.
 - [x] T014 Precompute input-group/codebook-centroid dot products and reuse them across output rows; validate the optimized kernel against an independent scalar reference for all four rates.
 - [x] T015 Benchmark the optimized kernel across 16, 64, 256, and 1,024 output rows at 256 columns; record the row-count crossover and rate-dependent tradeoffs.
-- [ ] T016 Run pinned local CPU benchmarks on transformer-shaped matrices and file-backed HPSI artifacts.
-- [ ] T017 Add a GPU kernel only after pinned CPU profiling and file-backed I/O measurements.
+- [x] T016 Add a `FileSource` benchmark using real temporary HPSI files and warm page-cache random-access reads; verify selected-row output parity and report index bytes read.
+- [ ] T017 Run pinned local CPU benchmarks on transformer-shaped matrices and cold/warm file-backed HPSI artifacts.
+- [ ] T018 Add a GPU kernel only after pinned CPU profiling and storage measurements.
