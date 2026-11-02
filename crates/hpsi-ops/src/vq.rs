@@ -196,6 +196,56 @@ impl VqMatrix {
         })
     }
 
+    /// Streaming equivalent of activation-aware encoding. Importance is
+    /// averaged by group position, matching the in-memory encoder.
+    pub fn encode_from_reader_activation_aware<F>(
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        activation_second_moment: &[f32],
+        mut read_elements: F,
+    ) -> Result<Self, VqError>
+    where
+        F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+    {
+        if activation_second_moment.len() != cols
+            || activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0)
+        {
+            return Err(VqError("activation importance must contain one finite non-negative value per column"));
+        }
+        let mut dimension_scale = [1.0_f32; GROUP_SIZE];
+        for (dimension, scale) in dimension_scale.iter_mut().enumerate() {
+            let mean = activation_second_moment.iter()
+                .skip(dimension)
+                .step_by(GROUP_SIZE)
+                .map(|value| f64::from(*value))
+                .sum::<f64>() / (cols / GROUP_SIZE) as f64;
+            *scale = mean.max(1.0e-30).sqrt() as f32;
+            if !scale.is_finite() || *scale <= 0.0 {
+                return Err(VqError("activation importance scale is invalid"));
+            }
+        }
+
+        let mut matrix = Self::encode_from_reader(rows, cols, config, |first, count| {
+            let mut values = read_elements(first, count)?;
+            let start = usize::try_from(first).map_err(|_| VqError("reader offset exceeds address space"))?;
+            for (index, value) in values.iter_mut().enumerate() {
+                let column = (start + index) % cols;
+                *value *= dimension_scale[column % GROUP_SIZE];
+                if !value.is_finite() {
+                    return Err(VqError("activation-scaled source window is non-finite"));
+                }
+            }
+            Ok(values)
+        })?;
+        for centroid in matrix.codebook.chunks_exact_mut(GROUP_SIZE) {
+            for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
+                *value /= scale;
+            }
+        }
+        Ok(matrix)
+    }
+
     /// Encode using activation second moments as per-input-column importance.
     /// Importance is averaged by group position because codebooks are shared.
     pub fn encode_activation_aware(
@@ -930,6 +980,36 @@ mod streaming_encoder_tests {
             assert_eq!(actual.codebook(), expected.codebook());
             assert_eq!(actual.packed_indices(), expected.packed_indices());
         }
+    }
+
+    #[test]
+    fn streaming_activation_aware_encoder_matches_in_memory() {
+        let rows = 16;
+        let cols = 32;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index as f32) * 0.031).cos() * 0.4)
+            .collect();
+        let mut importance = vec![1.0_f32; cols];
+        for column in (0..cols).step_by(8) {
+            importance[column] = 9.0;
+        }
+        let config = VqConfig {
+            codebook_count: 2,
+            sample_limit: 32,
+            ..VqConfig::default()
+        };
+        let expected = VqMatrix::encode_activation_aware(
+            &weights, rows, cols, config, &importance,
+        ).unwrap();
+        let actual = VqMatrix::encode_from_reader_activation_aware(
+            rows, cols, config, &importance,
+            |first, count| {
+                let start = first as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+        ).unwrap();
+        assert_eq!(actual.codebook(), expected.codebook());
+        assert_eq!(actual.packed_indices(), expected.packed_indices());
     }
 
     #[test]
