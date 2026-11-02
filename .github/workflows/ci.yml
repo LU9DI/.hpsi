@@ -81,7 +81,9 @@ jobs:
           components: rustfmt
 
       - name: Check fuzz target formatting
-        run: cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
+        working-directory: fuzz
+        run: cargo +nightly fmt -- --check
 
       - name: Compile libFuzzer targets
-        run: cargo check --manifest-path fuzz/Cargo.toml --bins
+        working-directory: fuzz
+        run: cargo +nightly check --bins
