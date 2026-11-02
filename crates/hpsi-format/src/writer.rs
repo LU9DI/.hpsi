@@ -270,7 +270,7 @@ impl ModelWriter {
         let mut integrity_index = 1_u64;
         for (tensor_index, tensor) in tensors.iter().enumerate() {
             for (block_index, expected_len) in tensor.block_lengths.iter().enumerate() {
-                let mut crc_writer = Crc32cWriter::new(out);
+                let mut crc_writer = Crc32cWriter::new(out, *expected_len);
                 let written = write_block(tensor_index, block_index, &mut crc_writer)?;
                 if written != *expected_len || crc_writer.bytes_written != *expected_len {
                     return Err(FormatError::InvalidBlock(
@@ -600,14 +600,16 @@ struct Crc32cWriter<'a, W: Write> {
     inner: &'a mut W,
     state: u32,
     bytes_written: u64,
+    limit: u64,
 }
 
 impl<'a, W: Write> Crc32cWriter<'a, W> {
-    fn new(inner: &'a mut W) -> Self {
+    fn new(inner: &'a mut W, limit: u64) -> Self {
         Self {
             inner,
             state: !0_u32,
             bytes_written: 0,
+            limit,
         }
     }
 
@@ -618,7 +620,15 @@ impl<'a, W: Write> Crc32cWriter<'a, W> {
 
 impl<W: Write> Write for Crc32cWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let written = self.inner.write(bytes)?;
+        let remaining = self.limit.saturating_sub(self.bytes_written);
+        if remaining == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "streaming block exceeded its declared length",
+            ));
+        }
+        let allowed = bytes.len().min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        let written = self.inner.write(&bytes[..allowed])?;
         for byte in &bytes[..written] {
             self.state ^= u32::from(*byte);
             for _ in 0..8 {
@@ -836,5 +846,26 @@ mod streaming_writer_tests {
             Ok(2)
         });
         assert!(matches!(result, Err(FormatError::InvalidBlock(_))));
+    }
+
+    #[test]
+    fn streaming_writer_caps_output_at_declared_block_length() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "payload".to_owned(),
+            dtype: DType::U8,
+            dimensions: vec![2],
+            block_lengths: vec![2],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, writer| {
+            writer.write_all(&[1_u8, 2, 3]).map_err(ioerr)?;
+            Ok(2)
+        });
+        assert!(result.is_err());
+        let planned_size = u64::from_le_bytes(
+            output.get_ref()[16..24].try_into().unwrap()
+        );
+        assert_eq!(output.get_ref().len() as u64, planned_size);
     }
 }
