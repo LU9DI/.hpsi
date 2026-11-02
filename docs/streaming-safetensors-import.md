@@ -126,8 +126,9 @@ metadata; those are separate pipeline steps.
 `SafeTensorFile::copy_raw_payload(name, output, chunk_bytes)` copies a
 validated tensor's original byte range to any `Write` sink without decoding,
 casting, or changing its source dtype. Reads are performed in chunks no larger
-than `chunk_bytes`; the method returns the exact number of bytes copied and
-rejects a zero chunk size. This is the low-level path required for tensors that
+than `chunk_bytes` and is additionally capped at 64 KiB even if a caller
+requests a larger buffer; the method returns the exact number of bytes copied
+and rejects a zero chunk size. This is the low-level path required for tensors that
 the VQ importer does not quantize (for example, biases, normalization
 parameters, integer tensors, and embeddings).
 
