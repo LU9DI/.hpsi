@@ -23,6 +23,35 @@ impl std::fmt::Display for CalibrationError {
 impl std::error::Error for CalibrationError {}
 
 impl ActivationCalibration {
+    /// Validate provenance and numeric invariants, including values created
+    /// directly through the public Rust struct rather than parsed from JSON.
+    pub fn validate(&self) -> Result<(), CalibrationError> {
+        if self.layer_name.trim().is_empty() {
+            return Err(CalibrationError("layer_name must not be empty"));
+        }
+        if self.sample_count == 0 {
+            return Err(CalibrationError("sample_count must be positive"));
+        }
+        if self.features == 0 || self.activation_second_moment.len() != self.features {
+            return Err(CalibrationError("activation moment count must match positive feature count"));
+        }
+        if self.activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0) {
+            return Err(CalibrationError("activation moments must be finite and non-negative"));
+        }
+        if self.model_type.trim().is_empty() {
+            return Err(CalibrationError("model_type must not be empty"));
+        }
+        if self.model_revision.as_deref().is_some_and(|revision| revision.trim().is_empty()) {
+            return Err(CalibrationError("model revision must not be empty when present"));
+        }
+        if self.dataset_sha256.len() != 64
+            || !self.dataset_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(CalibrationError("dataset sha256 must be 64 hexadecimal characters"));
+        }
+        Ok(())
+    }
+
     /// Parse one versioned HPSI activation-calibration JSON document.
     pub fn from_json(input: &str) -> Result<Self, CalibrationError> {
         let root: Value = serde_json::from_str(input)
