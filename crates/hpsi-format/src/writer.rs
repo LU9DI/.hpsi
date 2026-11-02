@@ -627,7 +627,9 @@ impl<W: Write> Write for Crc32cWriter<'_, W> {
                 "streaming block exceeded its declared length",
             ));
         }
-        let allowed = bytes.len().min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        let allowed = bytes
+            .len()
+            .min(usize::try_from(remaining).unwrap_or(usize::MAX));
         let written = self.inner.write(&bytes[..allowed])?;
         for byte in &bytes[..written] {
             self.state ^= u32::from(*byte);
@@ -863,9 +865,7 @@ mod streaming_writer_tests {
             Ok(2)
         });
         assert!(result.is_err());
-        let planned_size = u64::from_le_bytes(
-            output.get_ref()[16..24].try_into().unwrap()
-        );
+        let planned_size = u64::from_le_bytes(output.get_ref()[16..24].try_into().unwrap());
         assert_eq!(output.get_ref().len() as u64, planned_size);
     }
 }
