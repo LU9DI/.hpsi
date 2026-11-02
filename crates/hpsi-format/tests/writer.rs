@@ -127,11 +127,12 @@ fn write_path_verifies_before_publish_and_never_overwrites() {
         name: "invalid".into(),
         dtype: DType::F32,
         dimensions: vec![2],
-        blocks: vec![PayloadBlock { bytes: vec![1, 2, 3, 4] }],
+        blocks: vec![PayloadBlock {
+            bytes: vec![1, 2, 3, 4],
+        }],
     };
     assert!(ModelWriter::write_path(&path, &[invalid_tensor]).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), original);
-
 
     let reader = ModelReader::open(
         Arc::new(FileSource::open(&path).unwrap()),
