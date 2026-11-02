@@ -1778,3 +1778,33 @@ mod reusable_reader_buffer_tests {
         assert_eq!(reused_rows, legacy_rows);
     }
 }
+
+#[cfg(test)]
+mod resource_limit_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_vq_configurations_outside_resource_limits() {
+        let weights = [0.25_f32; GROUP_SIZE];
+        let invalid_configs = [
+            VqConfig { iterations: 0, ..VqConfig::default() },
+            VqConfig { iterations: MAX_VQ_ITERATIONS + 1, ..VqConfig::default() },
+            VqConfig { sample_limit: 0, ..VqConfig::default() },
+            VqConfig { sample_limit: MAX_VQ_TRAINING_SAMPLES + 1, ..VqConfig::default() },
+            VqConfig { codebook_count: 0, ..VqConfig::default() },
+            VqConfig { codebook_count: 5, ..VqConfig::default() },
+            VqConfig { beam_width: 0, ..VqConfig::default() },
+            VqConfig { beam_width: 257, ..VqConfig::default() },
+        ];
+
+        for config in invalid_configs {
+            assert!(VqMatrix::encode(&weights, 1, GROUP_SIZE, config).is_err());
+        }
+    }
+
+    #[test]
+    fn codebook_fitting_rejects_empty_training_samples() {
+        assert!(fit_codebook(&[], 1, false).is_err());
+        assert!(fit_codebook(&[], 1, true).is_err());
+    }
+}
