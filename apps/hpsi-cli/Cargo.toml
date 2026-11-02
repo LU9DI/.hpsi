@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 hpsi-format = { path = "../../crates/hpsi-format" }
+hpsi-ops = { path = "../../crates/hpsi-ops" }
 serde_json = "1"
