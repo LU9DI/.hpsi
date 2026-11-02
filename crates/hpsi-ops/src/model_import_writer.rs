@@ -515,25 +515,30 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
             }
         }
     }
-    let metadata = json!({
+    // Build the exact metadata document the writer will emit, validate it,
+    // then strip writer-owned fields in place. This avoids cloning the full
+    // provenance tree merely to perform the preflight parse.
+    let mut metadata = json!({
         "producer": {"name": "hpsi-safetensors-import", "version": env!("CARGO_PKG_VERSION")},
         "model": {"source_format": "safetensors"},
-        "user": {"source_tensors": provenance}
+        "user": {"source_tensors": provenance},
+        "format": "hpsi",
+        "metadata_version": 1,
+        "tensor_names": metadata_tensor_names
     });
-    let mut checked_metadata = metadata.clone();
-    let checked_object = checked_metadata
-        .as_object_mut()
-        .ok_or(VqError("import metadata root is not an object"))?;
-    checked_object.insert("format".into(), json!("hpsi"));
-    checked_object.insert("metadata_version".into(), json!(1));
-    checked_object.insert("tensor_names".into(), json!(metadata_tensor_names));
-    let metadata_bytes = serde_json::to_vec(&checked_metadata)
+    let metadata_bytes = serde_json::to_vec(&metadata)
         .map_err(|_| VqError("could not serialize import metadata"))?;
     if metadata_bytes.len() > 16 * 1024 * 1024 {
         return Err(VqError("model import exceeds HPSI metadata byte limit"));
     }
     hpsi_format::Metadata::parse(&metadata_bytes, &ReaderLimits::default())
         .map_err(|_| VqError("model import metadata exceeds HPSI format limits"))?;
+    let metadata_object = metadata
+        .as_object_mut()
+        .ok_or(VqError("import metadata root is not an object"))?;
+    metadata_object.remove("format");
+    metadata_object.remove("metadata_version");
+    metadata_object.remove("tensor_names");
     let mut spool = ImportSpool::create(output_payload_bytes)?;
     let mut next_id = 0_u32;
 
