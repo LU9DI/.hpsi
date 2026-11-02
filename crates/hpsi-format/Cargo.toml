@@ -7,3 +7,5 @@ license.workspace = true
 description = "Safe parser and random-access primitives for the HPSI model container"
 
 [dependencies]
+crc32c = "0.6"
+serde_json = "1"
