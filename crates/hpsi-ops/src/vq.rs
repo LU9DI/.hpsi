@@ -1,7 +1,60 @@
 use hpsi_format::{
     DType, ModelReader, ModelWriter, PayloadBlock, StreamingTensorInput, TensorInput, WriterStats,
 };
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static VQ_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct TemporarySpool {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+impl TemporarySpool {
+    fn create() -> Result<Self, VqError> {
+        let directory = std::env::temp_dir();
+        for _ in 0..128 {
+            let sequence = VQ_SPOOL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = directory.join(format!(
+                ".hpsi-vq-spool-{}-{sequence}.tmp",
+                std::process::id()
+            ));
+            match OpenOptions::new().read(true).write(true).create_new(true).open(&path) {
+                Ok(file) => return Ok(Self { path, file }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(_) => return Err(VqError("could not create temporary selector spool")),
+            }
+        }
+        Err(VqError("could not allocate a unique selector spool"))
+    }
+}
+
+impl Read for TemporarySpool {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buffer)
+    }
+}
+impl Write for TemporarySpool {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.file.write(buffer)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+impl Seek for TemporarySpool {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(position)
+    }
+}
+impl Drop for TemporarySpool {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
 
 pub const GROUP_SIZE: usize = 8;
 pub const CODEBOOK_SIZE: usize = 16;
@@ -380,6 +433,28 @@ impl VqMatrix {
             })
             .map_err(|_| VqError("HPSI streaming writer failed"))?;
         Ok(stats)
+    }
+
+    /// Convenience API that owns and cleans up a disk-backed selector spool.
+    /// This avoids requiring callers to manage an intermediate file for large
+    /// models while keeping selector memory bounded to one row and one 64 KiB
+    /// transfer buffer.
+    pub fn encode_from_reader_to_hpsi_with_temp_spool<W, F>(
+        out: &mut W,
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        block_rows: usize,
+        read_elements: F,
+    ) -> Result<WriterStats, VqError>
+    where
+        W: Write + Seek,
+        F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
+    {
+        let mut spool = TemporarySpool::create()?;
+        Self::encode_from_reader_to_hpsi(
+            out, &mut spool, rows, cols, config, block_rows, read_elements,
+        )
     }
 
     /// Activation-aware variant of `encode_from_reader_to`. It preserves
