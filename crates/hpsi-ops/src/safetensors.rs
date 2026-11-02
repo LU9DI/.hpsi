@@ -425,6 +425,9 @@ mod tests {
                     .unwrap();
             let values = file.read_f32_rows("w", 0, 1).unwrap();
             assert_eq!(values, vec![1.0, -2.0]);
+            let mut reused = [0.0_f32; 2];
+            file.read_f32_elements_into("w", 0, &mut reused).unwrap();
+            assert_eq!(reused, values);
         }
     }
 
