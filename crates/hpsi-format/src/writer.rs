@@ -415,6 +415,9 @@ impl ModelWriter {
             .try_reserve_exact(tensors.len())
             .map_err(|_| FormatError::LimitExceeded("writer tensor names"))?;
         let mut name_set = std::collections::HashSet::new();
+        name_set
+            .try_reserve(tensors.len())
+            .map_err(|_| FormatError::LimitExceeded("writer tensor name index allocation"))?;
         let mut previous_id = None;
         let mut block_count = 0usize;
         let mut payload_bytes = 0u64;
