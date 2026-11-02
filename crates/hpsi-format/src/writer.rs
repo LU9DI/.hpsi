@@ -779,11 +779,34 @@ fn open_temporary_file(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+fn create_temporary_file(parent: &Path) -> Result<(std::path::PathBuf, std::fs::File)> {
+    for _ in 0..128 {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
+        match open_temporary_file(&candidate) {
+            Ok(file) => return Ok((candidate, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(ioerr(error)),
+        }
+    }
+    Err(FormatError::Io(
+        "could not allocate a unique temporary output file".into(),
+    ))
+}
+
+
 impl ModelWriter {
     /// Stream, sync, reopen, and verify an artifact before publication.
     /// Existing destinations are never overwritten. A parent-directory sync failure
     /// after linking returns `PublicationDurabilityUncertain`; the destination may
     /// already be visible, but crash durability is not confirmed.
+    ///
+    /// The parent path is resolved by the operating system as supplied. This API
+    /// does not pin the parent directory against concurrent rename or symlink
+    /// substitution; callers requiring protection from a hostile directory namespace
+    /// must provide a trusted, non-writable parent directory. On Unix, temporary
+    /// files are created with mode 0600; on other platforms they inherit directory
+    /// ACL/default permissions.
     pub fn write_path_streaming<F>(
         path: impl AsRef<Path>,
         tensors: &[StreamingTensorInput],
@@ -800,24 +823,7 @@ impl ModelWriter {
             .parent()
             .filter(|value| !value.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let (temporary_path, temporary_file) = {
-            let mut created = None;
-            for _ in 0..128 {
-                let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
-                match open_temporary_file(&candidate) {
-                    Ok(file) => {
-                        created = Some((candidate, file));
-                        break;
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(error) => return Err(ioerr(error)),
-                }
-            }
-            created.ok_or(FormatError::Io(
-                "could not allocate a unique temporary output file".into(),
-            ))?
-        };
+        let (temporary_path, temporary_file) = create_temporary_file(parent)?;
         let result = (|| {
             let mut file = temporary_file;
             let stats = Self::write_streaming(&mut file, tensors, |tensor, block, output| {
@@ -845,7 +851,10 @@ impl ModelWriter {
     ///
     /// Publication uses a same-directory hard link and never overwrites an existing
     /// destination. Filesystems that do not support hard links return an I/O error.
-    /// A parent-directory sync failure after linking returns
+    /// Parent-path resolution is not pinned against concurrent namespace changes;
+    /// use a trusted parent directory when the namespace may be modified by an
+    /// untrusted actor. Temporary-file permissions follow Unix mode 0600 or the
+    /// platform's inherited directory ACLs. A parent-directory sync failure after linking returns
     /// `PublicationDurabilityUncertain`; the destination may already be visible.
     pub fn write_path(path: impl AsRef<Path>, tensors: &[TensorInput]) -> Result<WriterStats> {
         let destination = path.as_ref();
