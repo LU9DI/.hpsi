@@ -135,9 +135,12 @@ impl ModelWriter {
         }
 
         let mut metadata_value = extra_metadata.unwrap_or_else(|| json!({}));
-        let metadata_object = metadata_value.as_object_mut().ok_or(
-            FormatError::InvalidMetadata("writer metadata must be a JSON object"),
-        )?;
+        let metadata_object =
+            metadata_value
+                .as_object_mut()
+                .ok_or(FormatError::InvalidMetadata(
+                    "writer metadata must be a JSON object",
+                ))?;
         for key in metadata_object.keys() {
             if !matches!(key.as_str(), "model" | "producer" | "user") {
                 return Err(FormatError::InvalidMetadata(
