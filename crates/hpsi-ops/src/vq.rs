@@ -116,8 +116,7 @@ impl VqMatrix {
             let start = group_index * GROUP_SIZE;
             let mut residual = [0.0_f32; GROUP_SIZE];
             residual.copy_from_slice(&weights[start..start + GROUP_SIZE]);
-            let (_, codes) =
-                beam_search_additive(&residual, &codebooks, config.beam_width);
+            let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
             for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                 let selector = group_index * config.codebook_count + stage;
                 let byte_index = selector / 2;
@@ -589,10 +588,7 @@ fn beam_search_additive(
         expanded.truncate(beam_width);
         beam = expanded;
     }
-    let (_, residual, codes) = beam
-        .into_iter()
-        .next()
-        .unwrap_or((0.0, *vector, [0; 4]));
+    let (_, residual, codes) = beam.into_iter().next().unwrap_or((0.0, *vector, [0; 4]));
     (residual, codes)
 }
 
