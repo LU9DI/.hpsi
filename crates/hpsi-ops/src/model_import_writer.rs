@@ -423,7 +423,7 @@ mod tests {
             "weight.hpsi_vq.indices"
         );
         assert_eq!(
-            reader.metadata().value["user"]["source_tensors"][0]["source_dtype"],
+            reader.metadata.value["user"]["source_tensors"][0]["source_dtype"],
             "F32"
         );
     }
