@@ -134,10 +134,11 @@ impl ModelWriter {
             block_count = block_count
                 .checked_add(tensor.block_lengths.len())
                 .ok_or(FormatError::ArithmeticOverflow("block count"))?;
-            let tensor_logical_bytes = tensor.block_lengths.iter().try_fold(0_u64, |sum, length| {
-                sum.checked_add(*length)
-                    .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
-            })?;
+            let tensor_logical_bytes =
+                tensor.block_lengths.iter().try_fold(0_u64, |sum, length| {
+                    sum.checked_add(*length)
+                        .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
+                })?;
             if tensor_logical_bytes > MAX_WRITER_TENSOR_LOGICAL_BYTES {
                 return Err(FormatError::LimitExceeded("writer tensor logical bytes"));
             }
