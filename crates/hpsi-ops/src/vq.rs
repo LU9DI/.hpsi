@@ -22,7 +22,12 @@ impl TemporarySpool {
                 ".hpsi-vq-spool-{}-{sequence}.tmp",
                 std::process::id()
             ));
-            match OpenOptions::new().read(true).write(true).create_new(true).open(&path) {
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
                 Ok(file) => return Ok(Self { path, file }),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(_) => return Err(VqError("could not create temporary selector spool")),
@@ -453,7 +458,13 @@ impl VqMatrix {
     {
         let mut spool = TemporarySpool::create()?;
         Self::encode_from_reader_to_hpsi(
-            out, &mut spool, rows, cols, config, block_rows, read_elements,
+            out,
+            &mut spool,
+            rows,
+            cols,
+            config,
+            block_rows,
+            read_elements,
         )
     }
 
