@@ -34,9 +34,10 @@ pub fn discover_projection_candidates(tensors: &[SafeTensorInfo]) -> Vec<Project
             }
             let rows = tensor.shape[0];
             let cols = tensor.shape[1];
-            // Current VQ groups eight adjacent input features. Other shapes
-            // remain visible to inspection but are not yet VQ-import candidates.
-            if cols % 16 != 0 {
+            // VQ groups eight adjacent input features. Whether packed selectors
+            // are byte-aligned also depends on the selected codebook count,
+            // which is not known during candidate discovery.
+            if cols % 8 != 0 {
                 return None;
             }
             Some(ProjectionCandidate {
@@ -99,13 +100,15 @@ mod tests {
             info("model.layers.0.norm.weight", "F32", vec![128]),
             info("model.layers.0.mlp.custom.weight", "F16", vec![32, 32]),
             info("model.layers.0.mlp.bad.weight", "F32", vec![32, 7]),
+            info("model.layers.0.mlp.group8.weight", "F32", vec![32, 24]),
             info("embedding.weight", "I8", vec![100, 128]),
         ];
         let candidates = discover_projection_candidates(&tensors);
-        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates.len(), 3);
         assert!(candidates[0].conventional_projection_name);
         assert_eq!((candidates[0].rows, candidates[0].cols), (64, 128));
         assert!(!candidates[1].conventional_projection_name);
+        assert_eq!((candidates[2].rows, candidates[2].cols), (32, 24));
     }
 
     #[test]
