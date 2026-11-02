@@ -556,10 +556,7 @@ mod tests {
             bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
             bytes.extend_from_slice(header.as_bytes());
             assert!(matches!(
-                SafeTensorFile::open(
-                    Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                    4096,
-                ),
+                SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096,),
                 Err(SafeTensorError::InvalidHeader)
             ));
         }
@@ -577,10 +574,8 @@ mod tests {
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
             bytes.extend_from_slice(header.as_bytes());
-            let result = SafeTensorFile::open(
-                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                4096,
-            );
+            let result =
+                SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096);
             if header.contains(r#""format":"weights""#) {
                 assert!(result.is_ok());
             } else {
