@@ -165,8 +165,10 @@ mod resource_limit_tests {
             "producer": { "values": values }
         }))
         .unwrap();
-        let mut limits = ReaderLimits::default();
-        limits.max_json_container_items = 1000;
+        let limits = ReaderLimits {
+            max_json_container_items: 1000,
+            ..ReaderLimits::default()
+        };
         assert!(matches!(
             Metadata::parse(&bytes, &limits),
             Err(FormatError::LimitExceeded("JSON total node count"))
