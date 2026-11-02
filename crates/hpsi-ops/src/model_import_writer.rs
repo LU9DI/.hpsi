@@ -518,12 +518,16 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     let metadata = json!({
         "producer": {"name": "hpsi-safetensors-import", "version": env!("CARGO_PKG_VERSION")},
         "model": {"source_format": "safetensors"},
-        "user": {"source_tensors": provenance},
-        "format": "hpsi",
-        "metadata_version": 1,
-        "tensor_names": metadata_tensor_names
+        "user": {"source_tensors": provenance}
     });
-    let metadata_bytes = serde_json::to_vec(&metadata)
+    let mut checked_metadata = metadata.clone();
+    let checked_object = checked_metadata
+        .as_object_mut()
+        .ok_or(VqError("import metadata root is not an object"))?;
+    checked_object.insert("format".into(), json!("hpsi"));
+    checked_object.insert("metadata_version".into(), json!(1));
+    checked_object.insert("tensor_names".into(), json!(metadata_tensor_names));
+    let metadata_bytes = serde_json::to_vec(&checked_metadata)
         .map_err(|_| VqError("could not serialize import metadata"))?;
     if metadata_bytes.len() > 16 * 1024 * 1024 {
         return Err(VqError("model import exceeds HPSI metadata byte limit"));
