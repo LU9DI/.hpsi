@@ -377,6 +377,46 @@ mod tests {
     }
 
     #[test]
+    fn safetensors_tensor_imports_directly_to_hpsi() {
+        use hpsi_format::{ModelReader, ReaderLimits};
+        use std::io::Cursor;
+
+        let rows = 8_u64;
+        let cols = 16_u64;
+        let values: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index as f32) * 0.037).cos())
+            .collect();
+        let header = format!(
+            r#"{{"weight":{{"dtype":"F32","shape":[{},{}],"data_offsets":[0,{}]}}}}"#,
+            rows, cols, values.len() * 4
+        );
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header.as_bytes());
+        for value in &values {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        let source = SafeTensorFile::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+            4096,
+        ).unwrap();
+        let config = VqConfig {
+            codebook_count: 2,
+            sample_limit: 32,
+            ..VqConfig::default()
+        };
+        let mut output = Cursor::new(Vec::new());
+        let stats = source.encode_f32_tensor_to_hpsi("weight", &mut output, config, 2).unwrap();
+        assert_eq!(stats.tensor_count, 2);
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        ).unwrap();
+        reader.verify_all().unwrap();
+        assert_eq!(reader.read_block(0, 0).unwrap().payload.len(), 2 * 16 * 8 * 4);
+    }
+
+    #[test]
     fn reads_arbitrary_element_windows_and_rejects_non_finite_values() {
         let header = br#"{"w":{"dtype":"F32","shape":[2,3],"data_offsets":[0,24]}}"#;
         let mut bytes = Vec::new();
