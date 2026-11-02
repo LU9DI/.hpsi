@@ -33,7 +33,7 @@ impl std::fmt::Display for VqError {
 }
 impl std::error::Error for VqError {}
 
-/// Matrix represented by packed selectors into one or two shared codebooks.
+/// Matrix represented by packed 4-bit selectors into one through four additive codebooks.
 /// Runtime multiplication consumes the representation directly.
 #[derive(Debug, Clone)]
 pub struct VqMatrix {
@@ -189,7 +189,10 @@ impl VqMatrix {
             ));
         }
         let groups_per_row = self.cols / GROUP_SIZE;
-        let bytes_per_row = groups_per_row * self.codebook_count / 2;
+        let selectors_per_row = groups_per_row
+            .checked_mul(self.codebook_count)
+            .ok_or(VqError("selector count per row overflow"))?;
+        let bytes_per_row = selectors_per_row / 2;
         let index_block_bytes = bytes_per_row
             .checked_mul(block_rows)
             .ok_or(VqError("index block byte count overflow"))?;
@@ -264,6 +267,11 @@ impl<'a> VqMatrixView<'a> {
             return Err(VqError(
                 "packed index stream length does not match matrix shape",
             ));
+        }
+        if selector_count % 2 != 0
+            && packed_indices.last().is_some_and(|last| last & 0xf0 != 0)
+        {
+            return Err(VqError("unused packed selector nibble must be zero"));
         }
         Ok(Self {
             rows,
@@ -381,7 +389,10 @@ pub fn matvec_hpsi_rows(
         .collect();
 
     let groups_per_row = cols / GROUP_SIZE;
-    let bytes_per_row = groups_per_row * codebook_count / 2;
+    let selectors_per_row = groups_per_row
+        .checked_mul(codebook_count)
+        .ok_or(VqError("selector count per row overflow"))?;
+    let bytes_per_row = selectors_per_row / 2;
     let expected_index_bytes = rows
         .checked_mul(bytes_per_row)
         .ok_or(VqError("HPSI index tensor size overflow"))?;
@@ -390,6 +401,7 @@ pub fn matvec_hpsi_rows(
         .map_err(|_| VqError("could not locate HPSI index tensor"))?;
     if index_tensor.dtype != DType::Opaque
         || index_tensor.rank != 1
+        || index_tensor.dimensions[0] != expected_index_bytes as u64
         || index_tensor.logical_nbytes != expected_index_bytes as u64
     {
         return Err(VqError(
