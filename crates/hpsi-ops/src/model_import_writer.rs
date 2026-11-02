@@ -535,11 +535,8 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         "metadata_version": 1,
         "tensor_names": metadata_tensor_names
     });
-    let metadata_bytes = serde_json::to_vec(&metadata)
-        .map_err(|_| VqError("could not serialize import metadata"))?;
-    if metadata_bytes.len() > 16 * 1024 * 1024 {
-        return Err(VqError("model import exceeds HPSI metadata byte limit"));
-    }
+    let metadata_bytes = hpsi_format::serialize_metadata_limited(&metadata, 16 * 1024 * 1024)
+        .map_err(|_| VqError("model import metadata exceeds HPSI byte or allocation limit"))?;
     hpsi_format::Metadata::parse(&metadata_bytes, &ReaderLimits::default())
         .map_err(|_| VqError("model import metadata exceeds HPSI format limits"))?;
     let metadata_object = metadata
