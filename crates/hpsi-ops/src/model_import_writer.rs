@@ -748,14 +748,9 @@ mod tests {
             ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
                 .unwrap();
         let mut output = Cursor::new(Vec::new());
-        assert!(write_model_import_to_hpsi(
-            &source,
-            &plan,
-            &mut output,
-            config(),
-            usize::MAX,
-        )
-        .is_err());
+        assert!(
+            write_model_import_to_hpsi(&source, &plan, &mut output, config(), usize::MAX,).is_err()
+        );
         assert!(output.get_ref().is_empty());
     }
 
