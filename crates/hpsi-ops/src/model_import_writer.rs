@@ -150,9 +150,8 @@ fn source_dtype(dtype: &str) -> Result<DType, VqError> {
         // Safetensors has additional unsigned, sub-byte, FP8 and complex
         // types without a lossless HPSI scalar dtype. Preserve those payloads
         // as opaque bytes rather than rejecting an otherwise valid import.
-        "BOOL" | "F4" | "F6_E2M3" | "F6_E3M2" | "U16" | "U32" | "U64"
-        | "F8_E5M2" | "F8_E4M3" | "F8_E8M0" | "F8_E4M3FNUZ" | "F8_E5M2FNUZ"
-        | "C64" => Ok(DType::Opaque),
+        "BOOL" | "F4" | "F6_E2M3" | "F6_E3M2" | "U16" | "U32" | "U64" | "F8_E5M2" | "F8_E4M3"
+        | "F8_E8M0" | "F8_E4M3FNUZ" | "F8_E5M2FNUZ" | "C64" => Ok(DType::Opaque),
         _ => Err(VqError("source tensor dtype cannot be represented in HPSI")),
     }
 }
@@ -970,17 +969,12 @@ mod tests {
             bytes.extend_from_slice(header.as_bytes());
             bytes.extend_from_slice(&payload);
 
-            let source = SafeTensorFile::open(
-                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                4096,
-            )
-            .unwrap();
-            let plan = ModelImportPlan::build(
-                &source,
-                &[],
-                UnsupportedTensorPolicy::AllowRawPreservation,
-            )
-            .unwrap();
+            let source =
+                SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                    .unwrap();
+            let plan =
+                ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                    .unwrap();
             let mut output = Cursor::new(Vec::new());
             let stats =
                 write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).unwrap();
@@ -993,7 +987,10 @@ mod tests {
             .unwrap();
             reader.verify_all().unwrap();
             let descriptor = reader.tensor(0).unwrap();
-            assert_eq!(descriptor.dtype, expected_hpsi_dtype, "HPSI dtype for {dtype}");
+            assert_eq!(
+                descriptor.dtype, expected_hpsi_dtype,
+                "HPSI dtype for {dtype}"
+            );
             let expected_dimensions = if expected_hpsi_dtype == DType::Opaque {
                 vec![payload_len as u64]
             } else {
