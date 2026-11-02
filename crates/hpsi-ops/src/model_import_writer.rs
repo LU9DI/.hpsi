@@ -496,10 +496,22 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
             }
         }));
         match planned.disposition {
-            TensorDisposition::PreserveRaw => metadata_tensor_names.push(planned.source_name.clone()),
+            TensorDisposition::PreserveRaw => {
+                metadata_tensor_names.push(planned.source_name.clone())
+            }
             TensorDisposition::QuantizeVq => {
-                metadata_tensor_names.push(planned.codebook_name.clone().ok_or(VqError("VQ plan has no codebook name"))?);
-                metadata_tensor_names.push(planned.indices_name.clone().ok_or(VqError("VQ plan has no indices name"))?);
+                metadata_tensor_names.push(
+                    planned
+                        .codebook_name
+                        .clone()
+                        .ok_or(VqError("VQ plan has no codebook name"))?,
+                );
+                metadata_tensor_names.push(
+                    planned
+                        .indices_name
+                        .clone()
+                        .ok_or(VqError("VQ plan has no indices name"))?,
+                );
             }
         }
     }
