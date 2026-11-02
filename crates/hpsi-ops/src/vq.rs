@@ -973,11 +973,13 @@ impl VqMatrix {
             CODEBOOK_SIZE as u64,
             GROUP_SIZE as u64,
         ]);
+        let codebook_block_length = u64::try_from(codebook_byte_len)
+            .map_err(|_| VqError("VQ codebook payload exceeds format limits"))?;
         let mut codebook_block_lengths = Vec::new();
         codebook_block_lengths
             .try_reserve_exact(1)
             .map_err(|_| VqError("could not allocate VQ codebook block directory"))?;
-        codebook_block_lengths.push(codebook_byte_len as u64);
+        codebook_block_lengths.push(codebook_block_length);
         let mut index_dimensions = Vec::new();
         index_dimensions
             .try_reserve_exact(1)
