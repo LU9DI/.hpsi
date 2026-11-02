@@ -1592,6 +1592,7 @@ mod streaming_row_emission_tests {
             })
             .unwrap();
             let mut emitted = Vec::new();
+            let bytes_per_row = selectors_per_row(cols, codebook_count).unwrap() / 2;
             let codebook = VqMatrix::encode_from_reader_to(
                 rows,
                 cols,
@@ -1602,7 +1603,7 @@ mod streaming_row_emission_tests {
                     Ok(weights[start..end].to_vec())
                 },
                 |row, bytes| {
-                    assert_eq!(row as usize, emitted.len());
+                    assert_eq!(row as usize * bytes_per_row, emitted.len());
                     emitted.extend_from_slice(bytes);
                     Ok(())
                 },
@@ -1706,7 +1707,7 @@ mod hpsi_streaming_export_tests {
     #[test]
     fn reader_encoder_accepts_caller_assigned_tensor_ids_and_names() {
         let rows = 2;
-        let cols = 8;
+        let cols = 16;
         let weights = vec![0.25_f32; rows * cols];
         let mut output = Cursor::new(Vec::new());
         let mut spool = Cursor::new(Vec::new());
