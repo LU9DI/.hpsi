@@ -866,6 +866,60 @@ mod streaming_writer_tests {
     }
 
     #[test]
+    fn streaming_writer_roundtrips_validated_provenance_metadata() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 3,
+            name: "layer.weight".into(),
+            dtype: DType::U8,
+            dimensions: vec![2],
+            block_lengths: vec![2],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        ModelWriter::write_streaming_with_metadata(
+            &mut output,
+            &tensors,
+            Some(json!({
+                "producer": {"name": "hpsi-import", "version": "0.1"},
+                "model": {"source_format": "safetensors", "revision": "abc123"},
+                "user": {"source_sha256": "deadbeef"}
+            })),
+            |_, _, writer| {
+                writer.write_all(&[7, 9]).map_err(ioerr)?;
+                Ok(2)
+            },
+        ).unwrap();
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        ).unwrap();
+        reader.verify_all().unwrap();
+        assert_eq!(reader.metadata.value["producer"]["name"], "hpsi-import");
+        assert_eq!(reader.metadata.value["model"]["source_format"], "safetensors");
+        assert_eq!(reader.metadata.value["user"]["source_sha256"], "deadbeef");
+        assert_eq!(reader.metadata.tensor_names, vec!["layer.weight"]);
+    }
+
+    #[test]
+    fn streaming_writer_rejects_unrecognized_provenance_fields() {
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "payload".into(),
+            dtype: DType::U8,
+            dimensions: vec![1],
+            block_lengths: vec![1],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        let result = ModelWriter::write_streaming_with_metadata(
+            &mut output, &tensors, Some(json!({"arbitrary": true})),
+            |_, _, writer| {
+                writer.write_all(&[1]).map_err(ioerr)?;
+                Ok(1)
+            },
+        );
+        assert!(matches!(result, Err(FormatError::InvalidMetadata(_))));
+    }
+
+    #[test]
     fn streaming_writer_rejects_declared_length_mismatch() {
         let tensors = vec![StreamingTensorInput {
             tensor_id: 1,
