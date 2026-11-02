@@ -989,7 +989,9 @@ impl<'a> VqMatrixView<'a> {
         if rows == 0 {
             return Err(VqError("matrix row count must be non-zero"));
         }
-        selectors_per_row(cols, codebook_count)?;
+        if cols == 0 || cols % GROUP_SIZE != 0 || !(1..=4).contains(&codebook_count) {
+            return Err(VqError("matrix columns or codebook count are invalid"));
+        }
         if codebook.len() != CODEBOOK_VALUES * codebook_count
             || codebook.iter().any(|value| !value.is_finite())
         {
