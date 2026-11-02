@@ -58,3 +58,41 @@ fn writer_rejects_non_increasing_tensor_ids() {
     };
     assert!(ModelWriter::write(&mut Cursor::new(Vec::new()), &[make(2), make(1)]).is_err());
 }
+
+#[test]
+fn writer_refuses_to_overwrite_non_empty_stream() {
+    let tensor = TensorInput {
+        tensor_id: 1,
+        name: "x".into(),
+        dtype: DType::U8,
+        dimensions: vec![1],
+        blocks: vec![PayloadBlock { bytes: vec![7] }],
+    };
+    let mut output = Cursor::new(vec![0xaa]);
+    assert!(ModelWriter::write(&mut output, &[tensor]).is_err());
+    assert_eq!(output.into_inner(), vec![0xaa]);
+}
+
+#[test]
+fn verify_detects_payload_corruption() {
+    let tensor = TensorInput {
+        tensor_id: 1,
+        name: "x".into(),
+        dtype: DType::U8,
+        dimensions: vec![2],
+        blocks: vec![PayloadBlock { bytes: vec![1, 2] }],
+    };
+    let mut output = Cursor::new(Vec::new());
+    ModelWriter::write(&mut output, &[tensor]).unwrap();
+    let mut bytes = output.into_inner();
+    let payload_offset = u64::from_le_bytes(bytes[72..80].try_into().unwrap()) as usize;
+    bytes[payload_offset] ^= 0xff;
+    let reader = ModelReader::open(
+        Arc::new(MemorySource::new(bytes)),
+        &ReaderLimits::default(),
+    ).unwrap();
+    assert!(matches!(
+        reader.verify_all(),
+        Err(hpsi_format::FormatError::ChecksumMismatch)
+    ));
+}
