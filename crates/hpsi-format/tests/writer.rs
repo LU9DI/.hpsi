@@ -1,6 +1,6 @@
 use hpsi_format::{
-    DType, FileSource, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits,
-    TensorInput,
+    serialize_metadata_limited, DType, FileSource, MemorySource, ModelReader, ModelWriter,
+    PayloadBlock, ReaderLimits, TensorInput,
 };
 use std::io::Cursor;
 use std::sync::Arc;
@@ -188,5 +188,18 @@ fn verify_detects_metadata_corruption() {
     assert!(matches!(
         reader.verify_all(),
         Err(hpsi_format::FormatError::ChecksumMismatch)
+    ));
+}
+
+#[test]
+fn bounded_metadata_serializer_accepts_exact_limit_and_rejects_overflow() {
+    let value = serde_json::json!({"x": 1});
+    assert_eq!(
+        serialize_metadata_limited(&value, 7).unwrap(),
+        br#"{"x":1}"#
+    );
+    assert!(matches!(
+        serialize_metadata_limited(&value, 6),
+        Err(hpsi_format::FormatError::LimitExceeded(_))
     ));
 }
