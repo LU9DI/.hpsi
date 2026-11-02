@@ -565,9 +565,12 @@ fn validate_integrity_coverage(
                 metadata_seen = true;
             }
             IntegrityTarget::BlockPayload(block_index) => {
-                let block = blocks.get(block_index as usize).ok_or(
-                    FormatError::InvalidReference("integrity block index out of range"),
-                )?;
+                let block =
+                    blocks
+                        .get(block_index as usize)
+                        .ok_or(FormatError::InvalidReference(
+                            "integrity block index out of range",
+                        ))?;
                 let expected_index = u32::try_from(record_index)
                     .map_err(|_| FormatError::LimitExceeded("integrity record index"))?;
                 if block.checksum_index != Some(expected_index) {
