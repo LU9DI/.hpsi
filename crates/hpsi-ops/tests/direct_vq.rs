@@ -102,7 +102,11 @@ fn activation_weighted_relative_l2(weights: &[f32], matrix: &VqMatrix, importanc
             for stage in 0..matrix.codebook_count() {
                 let selector = group * matrix.codebook_count() + stage;
                 let packed = matrix.packed_indices()[selector / 2];
-                let code = usize::from(if selector % 2 == 0 { packed & 0x0f } else { packed >> 4 });
+                let code = usize::from(if selector % 2 == 0 {
+                    packed & 0x0f
+                } else {
+                    packed >> 4
+                });
                 reconstructed += matrix.codebook()[stage * 16 * 8 + code * 8 + dimension];
             }
             let weight = f64::from(importance[group % (importance.len() / 8) * 8 + dimension]);
@@ -123,12 +127,19 @@ fn activation_aware_vq_optimizes_high_importance_dimensions() {
     for column in (0..cols).step_by(8) {
         importance[column] = 64.0;
     }
-    let config = VqConfig { codebook_count: 4, ..VqConfig::default() };
+    let config = VqConfig {
+        codebook_count: 4,
+        ..VqConfig::default()
+    };
     let ordinary = VqMatrix::encode(&weights, rows, cols, config).unwrap();
-    let aware = VqMatrix::encode_activation_aware(&weights, rows, cols, config, &importance).unwrap();
+    let aware =
+        VqMatrix::encode_activation_aware(&weights, rows, cols, config, &importance).unwrap();
     let ordinary_error = activation_weighted_relative_l2(&weights, &ordinary, &importance);
     let aware_error = activation_weighted_relative_l2(&weights, &aware, &importance);
-    assert!(aware_error < ordinary_error, "activation-aware error {aware_error} did not improve over {ordinary_error}");
+    assert!(
+        aware_error < ordinary_error,
+        "activation-aware error {aware_error} did not improve over {ordinary_error}"
+    );
     assert_eq!(aware.stored_bytes(), ordinary.stored_bytes());
 }
 
