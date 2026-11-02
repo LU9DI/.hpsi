@@ -1,8 +1,10 @@
 mod activation;
+mod projection;
 mod safetensors;
 mod vq;
 
 pub use activation::{ActivationCalibration, CalibrationError};
+pub use projection::{ProjectionCandidate, discover_projection_candidates};
 pub use safetensors::{SafeTensorError, SafeTensorFile, SafeTensorInfo};
 
 pub use vq::{
