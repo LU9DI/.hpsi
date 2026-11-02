@@ -61,13 +61,18 @@ impl ModelWriter {
         F: FnMut(usize, usize, &mut dyn Write) -> Result<u64>,
     {
         if out.seek(SeekFrom::End(0)).map_err(ioerr)? != 0 {
-            return Err(FormatError::InvalidRegion("writer requires an empty output stream"));
+            return Err(FormatError::InvalidRegion(
+                "writer requires an empty output stream",
+            ));
         }
         if tensors.is_empty() || tensors.len() > u32::MAX as usize {
-            return Err(FormatError::InvalidTensor("writer requires a valid non-empty tensor set"));
+            return Err(FormatError::InvalidTensor(
+                "writer requires a valid non-empty tensor set",
+            ));
         }
         let mut names = Vec::new();
-        names.try_reserve_exact(tensors.len())
+        names
+            .try_reserve_exact(tensors.len())
             .map_err(|_| FormatError::LimitExceeded("writer tensor names"))?;
         let mut name_set = std::collections::HashSet::new();
         let mut previous_id = None;
@@ -75,22 +80,36 @@ impl ModelWriter {
         let mut payload_bytes = 0u64;
         for tensor in tensors {
             if previous_id.is_some_and(|id| tensor.tensor_id <= id) {
-                return Err(FormatError::InvalidTensor("tensor IDs must be strictly increasing"));
+                return Err(FormatError::InvalidTensor(
+                    "tensor IDs must be strictly increasing",
+                ));
             }
             previous_id = Some(tensor.tensor_id);
-            if tensor.name.is_empty() || tensor.name.contains('\0')
-                || tensor.name.len() > 1024 || !name_set.insert(tensor.name.as_str()) {
-                return Err(FormatError::InvalidMetadata("invalid or duplicate tensor name"));
+            if tensor.name.is_empty()
+                || tensor.name.contains('\0')
+                || tensor.name.len() > 1024
+                || !name_set.insert(tensor.name.as_str())
+            {
+                return Err(FormatError::InvalidMetadata(
+                    "invalid or duplicate tensor name",
+                ));
             }
-            if tensor.dimensions.is_empty() || tensor.dimensions.len() > 8
-                || tensor.dimensions.contains(&0) || tensor.block_lengths.is_empty()
-                || tensor.block_lengths.iter().any(|length| *length == 0) {
-                return Err(FormatError::InvalidTensor("invalid tensor rank, dimensions, or blocks"));
+            if tensor.dimensions.is_empty()
+                || tensor.dimensions.len() > 8
+                || tensor.dimensions.contains(&0)
+                || tensor.block_lengths.is_empty()
+                || tensor.block_lengths.iter().any(|length| *length == 0)
+            {
+                return Err(FormatError::InvalidTensor(
+                    "invalid tensor rank, dimensions, or blocks",
+                ));
             }
-            block_count = block_count.checked_add(tensor.block_lengths.len())
+            block_count = block_count
+                .checked_add(tensor.block_lengths.len())
                 .ok_or(FormatError::ArithmeticOverflow("block count"))?;
             for length in &tensor.block_lengths {
-                payload_bytes = payload_bytes.checked_add(*length)
+                payload_bytes = payload_bytes
+                    .checked_add(*length)
                     .ok_or(FormatError::ArithmeticOverflow("payload size"))?;
             }
             names.push(tensor.name.clone());
@@ -101,44 +120,72 @@ impl ModelWriter {
 
         let metadata = serde_json::to_vec(&json!({
             "format":"hpsi", "metadata_version":1, "tensor_names":names
-        })).map_err(|error| FormatError::Io(error.to_string()))?;
+        }))
+        .map_err(|error| FormatError::Io(error.to_string()))?;
         let metadata_off = 128_u64;
-        let tensor_off = align8(metadata_off.checked_add(metadata.len() as u64)
-            .ok_or(FormatError::ArithmeticOverflow("metadata end"))?)?;
-        let tensor_len = (tensors.len() as u64).checked_mul(128)
+        let tensor_off = align8(
+            metadata_off
+                .checked_add(metadata.len() as u64)
+                .ok_or(FormatError::ArithmeticOverflow("metadata end"))?,
+        )?;
+        let tensor_len = (tensors.len() as u64)
+            .checked_mul(128)
             .ok_or(FormatError::ArithmeticOverflow("tensor directory length"))?;
-        let block_off = align8(tensor_off.checked_add(tensor_len)
-            .ok_or(FormatError::ArithmeticOverflow("tensor directory"))?)?;
-        let block_len = (block_count as u64).checked_mul(64)
+        let block_off = align8(
+            tensor_off
+                .checked_add(tensor_len)
+                .ok_or(FormatError::ArithmeticOverflow("tensor directory"))?,
+        )?;
+        let block_len = (block_count as u64)
+            .checked_mul(64)
             .ok_or(FormatError::ArithmeticOverflow("block directory length"))?;
-        let integrity_off = align8(block_off.checked_add(block_len)
-            .ok_or(FormatError::ArithmeticOverflow("block directory"))?)?;
-        let integrity_count = block_count.checked_add(1)
+        let integrity_off = align8(
+            block_off
+                .checked_add(block_len)
+                .ok_or(FormatError::ArithmeticOverflow("block directory"))?,
+        )?;
+        let integrity_count = block_count
+            .checked_add(1)
             .ok_or(FormatError::ArithmeticOverflow("integrity count"))?;
         if integrity_count > u32::MAX as usize {
             return Err(FormatError::LimitExceeded("writer integrity record count"));
         }
-        let integrity_len = (integrity_count as u64).checked_mul(32)
-            .ok_or(FormatError::ArithmeticOverflow("integrity directory length"))?;
-        let payload_off = align8(integrity_off.checked_add(integrity_len)
-            .ok_or(FormatError::ArithmeticOverflow("integrity directory"))?)?;
-        let file_size = payload_off.checked_add(payload_bytes)
+        let integrity_len =
+            (integrity_count as u64)
+                .checked_mul(32)
+                .ok_or(FormatError::ArithmeticOverflow(
+                    "integrity directory length",
+                ))?;
+        let payload_off = align8(
+            integrity_off
+                .checked_add(integrity_len)
+                .ok_or(FormatError::ArithmeticOverflow("integrity directory"))?,
+        )?;
+        let file_size = payload_off
+            .checked_add(payload_bytes)
             .ok_or(FormatError::ArithmeticOverflow("file size"))?;
 
         let mut tensor_dir = Vec::new();
-        tensor_dir.try_reserve_exact(usize::try_from(tensor_len)
-            .map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?)
+        tensor_dir
+            .try_reserve_exact(
+                usize::try_from(tensor_len)
+                    .map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?,
+            )
             .map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?;
         let mut block_dir = Vec::new();
-        block_dir.try_reserve_exact(usize::try_from(block_len)
-            .map_err(|_| FormatError::LimitExceeded("block directory allocation"))?)
+        block_dir
+            .try_reserve_exact(
+                usize::try_from(block_len)
+                    .map_err(|_| FormatError::LimitExceeded("block directory allocation"))?,
+            )
             .map_err(|_| FormatError::LimitExceeded("block directory allocation"))?;
 
         let mut payload_pos = payload_off;
         let mut global_block = 0_u32;
         for (name_ref, tensor) in tensors.iter().enumerate() {
             let logical = tensor.block_lengths.iter().try_fold(0_u64, |sum, length| {
-                sum.checked_add(*length).ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
+                sum.checked_add(*length)
+                    .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
             })?;
             validate_shape(tensor.dtype, &tensor.dimensions, logical)?;
             let mut entry = [0_u8; 128];
@@ -168,9 +215,11 @@ impl ModelWriter {
                 put64(&mut entry, 48, u64::MAX);
                 put32(&mut entry, 56, global_block + 1);
                 block_dir.extend_from_slice(&entry);
-                logical_pos = logical_pos.checked_add(*length)
+                logical_pos = logical_pos
+                    .checked_add(*length)
                     .ok_or(FormatError::ArithmeticOverflow("logical block offset"))?;
-                payload_pos = payload_pos.checked_add(*length)
+                payload_pos = payload_pos
+                    .checked_add(*length)
                     .ok_or(FormatError::ArithmeticOverflow("payload offset"))?;
                 global_block += 1;
             }
@@ -204,8 +253,12 @@ impl ModelWriter {
         pad_to(out, block_off)?;
         out.write_all(&block_dir).map_err(ioerr)?;
         pad_to(out, integrity_off)?;
-        let mut empty_integrity = vec![0_u8; usize::try_from(integrity_len)
-            .map_err(|_| FormatError::LimitExceeded("integrity directory allocation"))?];
+        let mut empty_integrity = vec![
+            0_u8;
+            usize::try_from(integrity_len).map_err(|_| {
+                FormatError::LimitExceeded("integrity directory allocation")
+            })?
+        ];
         let mut metadata_record = [0_u8; 32];
         put32(&mut metadata_record, 0, 1);
         put16(&mut metadata_record, 8, 1);
@@ -220,14 +273,17 @@ impl ModelWriter {
                 let mut crc_writer = Crc32cWriter::new(out);
                 let written = write_block(tensor_index, block_index, &mut crc_writer)?;
                 if written != *expected_len || crc_writer.bytes_written != *expected_len {
-                    return Err(FormatError::InvalidBlock("stream callback wrote a different block length than declared"));
+                    return Err(FormatError::InvalidBlock(
+                        "stream callback wrote a different block length than declared",
+                    ));
                 }
                 let mut record = [0_u8; 32];
                 put32(&mut record, 0, 2);
                 put32(&mut record, 4, (integrity_index - 1) as u32);
                 put16(&mut record, 8, 1);
                 put32(&mut record, 12, crc_writer.finish());
-                let record_offset = integrity_off.checked_add(integrity_index * 32)
+                let record_offset = integrity_off
+                    .checked_add(integrity_index * 32)
                     .ok_or(FormatError::ArithmeticOverflow("integrity record offset"))?;
                 out.seek(SeekFrom::Start(record_offset)).map_err(ioerr)?;
                 out.write_all(&record).map_err(ioerr)?;
@@ -236,7 +292,9 @@ impl ModelWriter {
             }
         }
         if out.seek(SeekFrom::End(0)).map_err(ioerr)? != file_size {
-            return Err(FormatError::InvalidRegion("streamed payload length disagrees with planned file size"));
+            return Err(FormatError::InvalidRegion(
+                "streamed payload length disagrees with planned file size",
+            ));
         }
         out.flush().map_err(ioerr)?;
         Ok(WriterStats {
@@ -546,7 +604,11 @@ struct Crc32cWriter<'a, W: Write> {
 
 impl<'a, W: Write> Crc32cWriter<'a, W> {
     fn new(inner: &'a mut W) -> Self {
-        Self { inner, state: !0_u32, bytes_written: 0 }
+        Self {
+            inner,
+            state: !0_u32,
+            bytes_written: 0,
+        }
     }
 
     fn finish(self) -> u32 {
