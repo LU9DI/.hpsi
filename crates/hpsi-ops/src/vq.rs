@@ -285,11 +285,41 @@ impl<'a> VqMatrixView<'a> {
             return Err(VqError("matvec input or output length mismatch"));
         }
         let groups_per_row = self.cols / GROUP_SIZE;
+        // A centroid dot product depends on the input group, not on the output
+        // row. Compute each of the 16 candidates once, then gather by selector
+        // for every row. This avoids repeating 8 multiply-adds per row/group.
+        let dot_count = groups_per_row
+            .checked_mul(self.codebook_count)
+            .and_then(|count| count.checked_mul(CODEBOOK_SIZE))
+            .ok_or(VqError("VQ dot-product table size overflow"))?;
+        let mut dot_products = Vec::new();
+        dot_products
+            .try_reserve_exact(dot_count)
+            .map_err(|_| VqError("could not allocate VQ dot-product table"))?;
+        dot_products.resize(dot_count, 0.0_f32);
+
+        for group in 0..groups_per_row {
+            let input_offset = group * GROUP_SIZE;
+            for stage in 0..self.codebook_count {
+                for centroid in 0..CODEBOOK_SIZE {
+                    let codebook_offset =
+                        stage * CODEBOOK_VALUES + centroid * GROUP_SIZE;
+                    let mut dot = 0.0_f32;
+                    for dimension in 0..GROUP_SIZE {
+                        dot += input[input_offset + dimension]
+                            * self.codebook[codebook_offset + dimension];
+                    }
+                    let table_index =
+                        (group * self.codebook_count + stage) * CODEBOOK_SIZE + centroid;
+                    dot_products[table_index] = dot;
+                }
+            }
+        }
+
         for (row, output_value) in output.iter_mut().enumerate() {
             let mut accumulator = 0.0_f32;
             for group in 0..groups_per_row {
                 let global_group = row * groups_per_row + group;
-                let input_offset = group * GROUP_SIZE;
                 for stage in 0..self.codebook_count {
                     let selector = global_group * self.codebook_count + stage;
                     let packed = self.packed_indices[selector / 2];
@@ -298,11 +328,9 @@ impl<'a> VqMatrixView<'a> {
                     } else {
                         packed >> 4
                     });
-                    let codebook_offset = stage * CODEBOOK_VALUES + code * GROUP_SIZE;
-                    for dimension in 0..GROUP_SIZE {
-                        accumulator += input[input_offset + dimension]
-                            * self.codebook[codebook_offset + dimension];
-                    }
+                    let table_index =
+                        (group * self.codebook_count + stage) * CODEBOOK_SIZE + code;
+                    accumulator += dot_products[table_index];
                 }
             }
             *output_value = accumulator;
