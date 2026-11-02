@@ -211,6 +211,19 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
             tensor.data_end - tensor.data_start
         );
     }
+    let candidates = hpsi_ops::discover_projection_candidates(file.tensors());
+    println!("projection_candidates: {}", candidates.len());
+    for candidate in candidates {
+        println!(
+            "candidate name={} dtype={} shape={}x{} conventional_name={}",
+            candidate.name,
+            candidate.dtype,
+            candidate.rows,
+            candidate.cols,
+            candidate.conventional_projection_name
+        );
+    }
+    println!("note: candidates are not automatically imported; calibration must match the exact tensor name.");
     Ok(())
 }
 
