@@ -80,6 +80,12 @@ impl SafeTensorFile {
         let root: Value =
             serde_json::from_slice(&bytes).map_err(|_| SafeTensorError::InvalidHeader)?;
         let object = root.as_object().ok_or(SafeTensorError::InvalidHeader)?;
+        if let Some(metadata) = object.get("__metadata__") {
+            let metadata = metadata.as_object().ok_or(SafeTensorError::InvalidHeader)?;
+            if metadata.values().any(|value| !value.is_string()) {
+                return Err(SafeTensorError::InvalidHeader);
+            }
+        }
         let data_len = file_len - data_start;
         let mut tensors = Vec::new();
         tensors
@@ -418,6 +424,30 @@ fn f16_to_f32(bits: u16) -> f32 {
 mod tests {
     use super::*;
     use hpsi_format::MemorySource;
+    #[test]
+    fn accepts_string_metadata_and_rejects_non_object_or_non_string_values() {
+        for header in [
+            r#"{"__metadata__":{"format":"weights","version":"1"}}"#,
+            r#"{"__metadata__":null}"#,
+            r#"{"__metadata__":[]}"#,
+            r#"{"__metadata__":{"version":1}}"#,
+            r#"{"__metadata__":{"nested":{"key":"value"}}}"#,
+        ] {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            let result = SafeTensorFile::open(
+                Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+                4096,
+            );
+            if header.contains(r#""format":"weights""#) {
+                assert!(result.is_ok());
+            } else {
+                assert!(matches!(result, Err(SafeTensorError::InvalidHeader)));
+            }
+        }
+    }
+
     #[test]
     fn name_index_finds_tensors_without_changing_payload_order() {
         let header = br#"{"z":{"dtype":"U8","shape":[1],"data_offsets":[1,2]},"a":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}"#;
