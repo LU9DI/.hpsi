@@ -9,6 +9,7 @@
 - `local_files_only=True` prevents model/tokenizer downloads; `trust_remote_code=False` prevents executing repository-supplied model code.
 - The dataset is a UTF-8 JSONL file. Each non-empty line is either a JSON string or an object with a `text` field.
 - The first version hooks `torch.nn.Linear` modules only. Architectures implemented with custom projections (for example, non-Linear module types) need an explicit adapter before their layers are covered.
+- Each captured module is mapped to the conventional Safetensors parameter key `<module path>.weight` (or `weight` for a root Linear). This matches common Hugging Face checkpoints but is not a universal architecture mapping; inspect the checkpoint keys before importing.
 - Statistics are accumulated online as float64 sums of squares. Full activation matrices are not retained.
 - Each layer has an independent token-row cap. The captured statistic is `E[x_j^2]`, not centered variance or a full covariance matrix.
 
@@ -43,7 +44,8 @@ The script does not download weights. If the model is not already present locall
 
 The output directory contains:
 - `manifest.json`: model type/revision when available, dataset SHA-256, sequence count, and layer-to-file mapping.
-- One JSON file per captured Linear layer, with `format=hpsi-activation-calibration`, `version=1`, `layer_name`, `sample_count`, `shape`, and `activation_second_moment`.
+- One JSON file per captured Linear layer, with `format=hpsi-activation-calibration`, `version=1`, `layer_name` (the mapped Safetensors weight key), `sample_count`, `shape`, and `activation_second_moment`.
+- The manifest records both `module_name` and `source_tensor_name` so the mapping can be audited.
 
 The second-moment field is directly compatible with the vector expected by `VqMatrix::encode_activation_aware`. The exporter emits calibration data; it does not quantize weights or perform HPSI inference.
 
@@ -62,13 +64,17 @@ they can represent inactive features, and the activation-aware encoder applies a
 positive numerical floor internally when deriving its group-position scale.
 
 The multi-tensor Safetensors importer accepts validated calibration records through
-`ModelImportPlan::build`. It matches each record to an exact source tensor name and
-requires the calibration feature count to equal the tensor's input dimension. Eligible
-rank-2 F32/F16/BF16 weights are then quantized with the activation-aware VQ path; other
-tensors follow the selected raw-preservation or reject policy. Calibration values affect
-the encoding, but calibration provenance (dataset digest, model revision, and statistic
-version) is not yet persisted in the HPSI artifact. Real-model layer-output and task-quality
-evaluation remain separate work.
+`ModelImportPlan::build`, or through `ModelImportPlan::build_with_provenance` when
+the calibration provenance must be persisted. Records match exact source tensor names
+and their feature count must equal the tensor's input dimension. Eligible rank-2
+F32/F16/BF16 weights are quantized with activation-aware VQ; other tensors follow the
+selected raw-preservation or reject policy. Use
+`write_model_import_to_hpsi_calibrated` or
+`write_model_import_to_hpsi_path_calibrated` with the provenance-aware plan to store
+model type, optional revision, dataset SHA-256, sample count, feature count, and
+statistic identifier in the HPSI manifest. The path writer reopens and verifies the
+artifact before no-replace publication. The numeric moment vector is not copied into
+metadata. Real-model layer-output and task-quality evaluation remain separate work.
 
 ## Inspecting local Safetensors weights
 
@@ -85,7 +91,8 @@ The `safetensors-inspect` CLI command reports metadata only. The library also ex
 a single-tensor VQ convenience path and a complete multi-tensor import pipeline:
 `ModelImportPlan::build` plans every tensor, while `write_model_import_to_hpsi` emits
 one HPSI container and `write_model_import_to_hpsi_path` verifies and publishes a file
-without replacing an existing destination. VQ is currently limited to eligible rank-2
+without replacing an existing destination. For persistent calibration provenance, use
+`build_with_provenance` and the calibrated writer variants. VQ is currently limited to eligible rank-2
 F32/F16/BF16 tensors; other non-scalar, non-empty tensors can be preserved byte-for-byte
 or rejected by policy. Sharded model indexes and automatic calibration-name mapping across
 architectures remain follow-up work.
