@@ -28,12 +28,7 @@ fn benchmark_shape_weights(rows: usize, cols: usize, seed: u64) -> Vec<f32> {
     (0..rows * cols).map(|_| next_value(&mut state)).collect()
 }
 
-fn dense_matvec_shape(
-    weights: &[f32],
-    cols: usize,
-    input: &[f32],
-    output: &mut [f32],
-) {
+fn dense_matvec_shape(weights: &[f32], cols: usize, input: &[f32], output: &mut [f32]) {
     for (row, output_value) in output.iter_mut().enumerate() {
         let mut sum = 0.0_f32;
         for col in 0..cols {
