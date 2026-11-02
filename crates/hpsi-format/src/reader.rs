@@ -447,3 +447,16 @@ impl Crc32c {
         !self.0
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::Crc32c;
+
+    #[test]
+    fn crc32c_uses_castagnoli_polynomial() {
+        let mut crc = Crc32c::new();
+        crc.update(b"123456789");
+        assert_eq!(crc.finish(), 0xe306_9283);
+    }
+}
