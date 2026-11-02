@@ -983,6 +983,48 @@ mod streaming_writer_tests {
     }
 
     #[test]
+    fn concurrent_path_streaming_writers_never_overwrite_destination() {
+        use std::sync::{Arc, Barrier};
+
+        let (directory, destination) = test_output_path("concurrent-publish");
+        let barrier = Arc::new(Barrier::new(2));
+        let mut workers = Vec::new();
+
+        for byte in [17_u8, 34_u8] {
+            let path = destination.clone();
+            let barrier = Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                ModelWriter::write_path_streaming(
+                    path,
+                    &one_byte_streaming_tensor(),
+                    move |_, _, writer| {
+                        writer.write_all(&[byte]).map_err(ioerr)?;
+                        barrier.wait();
+                        Ok(1)
+                    },
+                )
+            }));
+        }
+
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("writer thread panicked"))
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+
+        let source = Arc::new(FileSource::open(&destination).unwrap());
+        let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
+        reader.verify_all().unwrap();
+        let payload = reader.read_block(1, 0).unwrap().payload;
+        assert!(payload == [17] || payload == [34]);
+
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_file(&destination).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
     fn path_streaming_does_not_overwrite_existing_destination() {
         let (directory, destination) = test_output_path("existing-destination");
         std::fs::write(&destination, b"keep original").unwrap();
