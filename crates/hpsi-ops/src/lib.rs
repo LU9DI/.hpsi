@@ -14,6 +14,6 @@ pub use projection::{ProjectionCandidate, discover_projection_candidates};
 pub use safetensors::{SafeTensorError, SafeTensorFile, SafeTensorInfo};
 
 pub use vq::{
-    CODEBOOK_SIZE, GROUP_SIZE, HpsiVqExecutor, HpsiVqLayout, VqConfig, VqError, VqMatrix,
-    VqMatrixView, VqHpsiExportOptions, VqTensorNames, matvec_hpsi_rows,
+    CODEBOOK_SIZE, GROUP_SIZE, HpsiVqExecutor, HpsiVqLayout, VqConfig, VqError,
+    VqHpsiExportOptions, VqMatrix, VqMatrixView, VqTensorNames, matvec_hpsi_rows,
 };
