@@ -23,6 +23,102 @@ fn make_weights() -> Vec<f32> {
     (0..ROWS * COLS).map(|_| next_value(&mut state)).collect()
 }
 
+fn benchmark_shape_weights(rows: usize, cols: usize, seed: u64) -> Vec<f32> {
+    let mut state = seed;
+    (0..rows * cols)
+        .map(|_| next_value(&mut state))
+        .collect()
+}
+
+fn dense_matvec_shape(
+    weights: &[f32],
+    rows: usize,
+    cols: usize,
+    input: &[f32],
+    output: &mut [f32],
+) {
+    for (row, output_value) in output.iter_mut().enumerate() {
+        let mut sum = 0.0_f32;
+        for col in 0..cols {
+            sum += weights[row * cols + col] * input[col];
+        }
+        *output_value = sum;
+    }
+}
+
+fn measure_dense_shape(
+    weights: &[f32],
+    rows: usize,
+    cols: usize,
+    input: &[f32],
+) -> (f64, f64) {
+    let mut output = vec![0.0_f32; rows];
+    let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
+    for _ in 0..LATENCY_REPETITIONS {
+        let start = Instant::now();
+        dense_matvec_shape(weights, rows, cols, input, &mut output);
+        durations.push(start.elapsed());
+        black_box(output[0]);
+    }
+    (
+        percentile_ms(&mut durations, 50),
+        percentile_ms(&mut durations, 95),
+    )
+}
+
+fn measure_vq_shape(matrix: &VqMatrix, input: &[f32]) -> (f64, f64) {
+    let mut output = vec![0.0_f32; matrix.rows()];
+    let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
+    for _ in 0..LATENCY_REPETITIONS {
+        let start = Instant::now();
+        matrix.view().matvec(input, &mut output).expect("valid VQ shape");
+        durations.push(start.elapsed());
+        black_box(output[0]);
+    }
+    (
+        percentile_ms(&mut durations, 50),
+        percentile_ms(&mut durations, 95),
+    )
+}
+
+fn benchmark_row_scaling() {
+    const COLS: usize = 256;
+    println!("row_scaling_cols: {COLS}");
+    for rows in [16, 64, 256, 1024] {
+        let weights = benchmark_shape_weights(
+            rows,
+            COLS,
+            0x5343_414c_4500_0000_u64 + rows as u64,
+        );
+        let input = make_input(0x5343_414c_494e_5055_u64 + rows as u64);
+        let dense = measure_dense_shape(&weights, rows, COLS, &input);
+        println!("scaling_rows_{rows}_dense_p50_ms: {:.6}", dense.0);
+        println!("scaling_rows_{rows}_dense_p95_ms: {:.6}", dense.1);
+
+        for codebook_count in [1, 4] {
+            let matrix = VqMatrix::encode(
+                &weights,
+                rows,
+                COLS,
+                VqConfig {
+                    codebook_count,
+                    ..VqConfig::default()
+                },
+            )
+            .expect("valid row-scaling matrix");
+            let vq = measure_vq_shape(&matrix, &input);
+            println!(
+                "scaling_rows_{rows}_vq{codebook_count}_p50_ms: {:.6}",
+                vq.0
+            );
+            println!(
+                "scaling_rows_{rows}_vq{codebook_count}_p95_ms: {:.6}",
+                vq.1
+            );
+        }
+    }
+}
+
 fn make_input(seed: u64) -> Vec<f32> {
     let mut state = seed;
     (0..COLS).map(|_| next_value(&mut state) * 10.0).collect()
@@ -322,4 +418,5 @@ fn main() {
     );
     println!("latency_samples_per_path: {LATENCY_REPETITIONS}");
     println!("heldout_input_vectors: {QUALITY_SAMPLES}");
+    benchmark_row_scaling();
 }
