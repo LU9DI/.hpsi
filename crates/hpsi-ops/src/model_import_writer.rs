@@ -399,9 +399,12 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                 }
                 let bytes_per_row = selectors_per_row / 2;
                 let effective_block_rows = block_rows.min(rows);
-                let selector_block_bytes = u64::try_from(effective_block_rows)
-                    .ok()
-                    .and_then(|count| count.checked_mul(bytes_per_row as u64))
+                let effective_block_rows_u64 = u64::try_from(effective_block_rows)
+                    .map_err(|_| VqError("selector block row count exceeds format range"))?;
+                let bytes_per_row_u64 = u64::try_from(bytes_per_row)
+                    .map_err(|_| VqError("VQ selector row size exceeds format range"))?;
+                let selector_block_bytes = effective_block_rows_u64
+                    .checked_mul(bytes_per_row_u64)
                     .ok_or(VqError("selector block size overflow"))?;
                 if selector_block_bytes == 0 || selector_block_bytes > MAX_IMPORT_BLOCK_BYTES {
                     return Err(VqError("selector block exceeds HPSI payload limit"));
