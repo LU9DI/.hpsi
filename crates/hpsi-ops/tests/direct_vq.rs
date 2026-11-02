@@ -41,11 +41,7 @@ fn weight_relative_l2(weights: &[f32], matrix: &VqMatrix) -> f64 {
     (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
 }
 
-fn scalar_reference_matvec(
-    matrix: &VqMatrix,
-    input: &[f32],
-    output: &mut [f32],
-) {
+fn scalar_reference_matvec(matrix: &VqMatrix, input: &[f32], output: &mut [f32]) {
     let groups_per_row = matrix.cols() / 8;
     let codebook = matrix.codebook();
     let selectors = matrix.packed_indices();
@@ -63,8 +59,8 @@ fn scalar_reference_matvec(
                 });
                 let codebook_offset = stage * 16 * 8 + code * 8;
                 for dimension in 0..8 {
-                    accumulator += input[group * 8 + dimension]
-                        * codebook[codebook_offset + dimension];
+                    accumulator +=
+                        input[group * 8 + dimension] * codebook[codebook_offset + dimension];
                 }
             }
         }
