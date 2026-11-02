@@ -104,11 +104,16 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         ));
     }
 
-    if config.sample_limit == 0 || config.sample_limit > MAX_IMPORT_TRAINING_SAMPLES
-        || config.iterations == 0 || config.iterations > MAX_IMPORT_VQ_ITERATIONS
+    if config.sample_limit == 0
+        || config.sample_limit > MAX_IMPORT_TRAINING_SAMPLES
+        || config.iterations == 0
+        || config.iterations > MAX_IMPORT_VQ_ITERATIONS
         || !(1..=4).contains(&config.codebook_count)
-        || !(1..=256).contains(&config.beam_width) {
-        return Err(VqError("VQ import configuration exceeds supported resource limits"));
+        || !(1..=256).contains(&config.beam_width)
+    {
+        return Err(VqError(
+            "VQ import configuration exceeds supported resource limits",
+        ));
     }
 
     // The plan is a public data structure and may have been constructed or
@@ -660,5 +665,4 @@ mod tests {
         let mut output = Cursor::new(Vec::new());
         assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
     }
-
 }
