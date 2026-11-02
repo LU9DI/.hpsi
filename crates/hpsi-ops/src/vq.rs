@@ -103,9 +103,9 @@ impl VqMatrix {
 
         let mut dimension_scale = [1.0_f32; GROUP_SIZE];
         if let Some(importance) = activation_second_moment {
-            if importance.len() != cols || importance.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+            if importance.len() != cols || importance.iter().any(|v| !v.is_finite() || *v < 0.0) {
                 return Err(VqError(
-                    "activation importance must contain one finite positive value per column",
+                    "activation importance must contain one finite non-negative value per column",
                 ));
             }
             for (dimension, scale) in dimension_scale.iter_mut().enumerate() {
@@ -116,7 +116,8 @@ impl VqMatrix {
                     .map(|v| f64::from(*v))
                     .sum::<f64>()
                     / (cols / GROUP_SIZE) as f64;
-                *scale = mean.sqrt() as f32;
+                // A fully inactive feature is valid calibration data; keep inverse scaling finite.
+                *scale = mean.max(1.0e-30).sqrt() as f32;
                 if !scale.is_finite() || *scale <= 0.0 {
                     return Err(VqError("activation importance scale is invalid"));
                 }
