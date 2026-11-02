@@ -1525,7 +1525,12 @@ mod hpsi_streaming_export_tests {
             &mut spool,
             rows,
             cols,
-            VqConfig { iterations: 2, sample_limit: 8, codebook_count: 1, beam_width: 2 },
+            VqConfig {
+                iterations: 2,
+                sample_limit: 8,
+                codebook_count: 1,
+                beam_width: 2,
+            },
             1,
             40,
             "layer.weight.codebook",
@@ -1535,12 +1540,14 @@ mod hpsi_streaming_export_tests {
                 let start = offset as usize;
                 Ok(weights[start..start + count as usize].to_vec())
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(stats.tensor_count, 2);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
         assert!(!reader.read_block(40, 0).unwrap().payload.is_empty());
         assert!(!reader.read_block(41, 0).unwrap().payload.is_empty());
