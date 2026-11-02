@@ -20,7 +20,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let Some(path) = args.get(1) else {
         return Err(usage());
     };
-    let tensor_id = match command {
+    if command == "safetensors-inspect" && args.len() == 2 {\n        return inspect_safetensors(path);\n    }\n    let tensor_id = match command {
         "inspect" | "verify" if args.len() == 2 => None,
         "calibrate" if args.len() == 3 => Some(
             args[2]
@@ -187,6 +187,6 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
     Ok(())
 }
 
-fn usage() -> String {
-    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id>".to_owned()
+fn inspect_safetensors(path: &str) -> Result<(), String> {\n    let source = Arc::new(FileSource::open(path).map_err(|e| e.to_string())?);\n    let file = hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024).map_err(|e| e.to_string())?;\n    println!("safetensors: {}", path);\n    println!("tensors: {}", file.tensors().len());\n    for tensor in file.tensors() {\n        let shape = tensor.shape.iter().map(u64::to_string).collect::<Vec<_>>().join("x");\n        println!("name={} dtype={} shape={} data_bytes={}", tensor.name, tensor.dtype, shape, tensor.data_end - tensor.data_start);\n    }\n    Ok(())\n}\n\nfn usage() -> String {
+    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors>".to_owned()
 }
