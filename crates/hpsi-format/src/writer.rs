@@ -770,8 +770,10 @@ fn crc32c(b: &[u8]) -> u32 {
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 impl ModelWriter {
-    /// Stream, sync, reopen, and verify an artifact before atomic publication.
-    /// Existing destinations are never overwritten.
+    /// Stream, sync, reopen, and verify an artifact before publication.
+    /// Existing destinations are never overwritten. A parent-directory sync failure
+    /// after linking returns `PublicationDurabilityUncertain`; the destination may
+    /// already be visible, but crash durability is not confirmed.
     pub fn write_path_streaming<F>(
         path: impl AsRef<Path>,
         tensors: &[StreamingTensorInput],
@@ -822,17 +824,24 @@ impl ModelWriter {
             let reader = ModelReader::open(source, &ReaderLimits::default())?;
             reader.verify_all()?;
             fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
-            sync_parent_directory(parent)?;
+            if let Err(error) = sync_parent_directory(parent) {
+                return Err(FormatError::PublicationDurabilityUncertain {
+                    path: destination.display().to_string(),
+                    reason: error.to_string(),
+                });
+            }
             Ok(stats)
         })();
         let _ = fs::remove_file(&temporary_path);
         result
     }
 
-    /// Write, sync, reopen, and verify an artifact before atomically publishing it.
+    /// Write, sync, reopen, and verify an artifact before publishing it.
     ///
     /// Publication uses a same-directory hard link and never overwrites an existing
-    /// destination. Filesystems that do not support hard links will return an I/O error.
+    /// destination. Filesystems that do not support hard links return an I/O error.
+    /// A parent-directory sync failure after linking returns
+    /// `PublicationDurabilityUncertain`; the destination may already be visible.
     pub fn write_path(path: impl AsRef<Path>, tensors: &[TensorInput]) -> Result<WriterStats> {
         let destination = path.as_ref();
         if destination.file_name().is_none() {
@@ -878,7 +887,12 @@ impl ModelWriter {
             reader.verify_all()?;
 
             fs::hard_link(&temporary_path, destination).map_err(ioerr)?;
-            sync_parent_directory(parent)?;
+            if let Err(error) = sync_parent_directory(parent) {
+                return Err(FormatError::PublicationDurabilityUncertain {
+                    path: destination.display().to_string(),
+                    reason: error.to_string(),
+                });
+            }
             Ok(stats)
         })();
 
