@@ -1081,6 +1081,95 @@ mod tests {
     }
 
     #[test]
+    fn persists_calibration_provenance_and_reopens_verified_artifact() {
+        let (source, _, _) = fixture();
+        let calibration = ActivationCalibration {
+            layer_name: "weight".into(),
+            sample_count: 12,
+            features: 8,
+            activation_second_moment: vec![0.5; 8],
+            model_type: "test-transformer".into(),
+            model_revision: Some("revision-42".into()),
+            dataset_sha256: "a".repeat(64),
+        };
+        let calibrated = ModelImportPlan::build_with_provenance(
+            &source,
+            &[calibration],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
+        let mut output = Cursor::new(Vec::new());
+        let stats = write_model_import_to_hpsi_calibrated(
+            &source,
+            &calibrated,
+            &mut output,
+            config(),
+            1,
+        )
+        .unwrap();
+        assert_eq!(stats.tensor_count, 3);
+
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+        reader.verify_all().unwrap();
+        let source_tensors = reader.metadata.value["user"]["source_tensors"]
+            .as_array()
+            .unwrap();
+        let bias = source_tensors.iter().find(|item| item["name"] == "bias").unwrap();
+        assert!(bias.get("calibration").is_none());
+        let weight = source_tensors
+            .iter()
+            .find(|item| item["name"] == "weight")
+            .unwrap();
+        assert_eq!(weight["calibration"]["model_type"], "test-transformer");
+        assert_eq!(weight["calibration"]["model_revision"], "revision-42");
+        assert_eq!(weight["calibration"]["dataset_sha256"], "a".repeat(64));
+        assert_eq!(weight["calibration"]["sample_count"], 12);
+        assert_eq!(weight["calibration"]["features"], 8);
+        assert_eq!(
+            weight["calibration"]["statistic"],
+            "diagonal_second_moment"
+        );
+        assert!(weight["calibration"].get("activation_second_moment").is_none());
+    }
+
+    #[test]
+    fn rejects_tampered_calibration_provenance_before_writing() {
+        let (source, _, _) = fixture();
+        let calibration = ActivationCalibration {
+            layer_name: "weight".into(),
+            sample_count: 12,
+            features: 8,
+            activation_second_moment: vec![1.0; 8],
+            model_type: "test-transformer".into(),
+            model_revision: None,
+            dataset_sha256: "b".repeat(64),
+        };
+        let mut calibrated = ModelImportPlan::build_with_provenance(
+            &source,
+            &[calibration],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
+        calibrated.calibrations[0].dataset_sha256 = "z".repeat(64);
+        let mut output = Cursor::new(Vec::new());
+        assert!(
+            write_model_import_to_hpsi_calibrated(
+                &source,
+                &calibrated,
+                &mut output,
+                config(),
+                1,
+            )
+            .is_err()
+        );
+        assert!(output.get_ref().is_empty());
+    }
+
+    #[test]
     fn imports_all_safetensors_dtypes_to_hpsi_without_payload_loss() {
         let dtypes = [
             ("BOOL", 8_u64, DType::Opaque),
