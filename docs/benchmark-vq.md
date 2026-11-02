@@ -113,4 +113,19 @@ The same optimized kernel was measured at four row counts with 256 columns, usin
 | 256 × 256 | 0.025108 | 0.008994 | 0.036965 |
 | 1,024 × 256 | 0.099743 | 0.032180 | 0.134677 |
 
-The one-codebook mode improves p50 by roughly 1.06×, 1.97×, 2.79×, and 3.10× as rows increase. Four-codebook mode is slower at all four shapes in this sample. This shows that the current dot-table kernel benefits most from low-rate codebooks and larger row counts; it does **not** show that all VQ rates outperform dense F32. The CI runner's exact CPU model and power state were not recorded, so these timings are indicative only. Pinned local CPU runs, larger transformer-shaped matrices, and file-backed I/O measurements remain necessary.
+The one-codebook mode improves p50 by roughly 1.06×, 1.97×, 2.79×, and 3.10× as rows increase. Four-codebook mode is slower at all four shapes in this sample. This shows that the current dot-table kernel benefits most from low-rate codebooks and larger row counts; it does **not** show that all VQ rates outperform dense F32. The CI runner's exact CPU model and power state were not recorded, so these timings are indicative only. Pinned local CPU runs and larger transformer-shaped matrices remain necessary.
+
+### File-backed row-window reads — CI run #97
+
+Run: [GitHub Actions #97](https://github.com/LU9DI/.hpsi/actions/runs/41373098140)
+
+The benchmark writes each HPSI artifact to a temporary file, opens it through `FileSource` (OS random-access reads), prepares the executor, then measures repeated 32-row windows. The process does not drop the OS page cache, so these are **warm page-cache file-backed** timings, not cold physical-disk latency.
+
+| Metric | 1 codebook | 2 codebooks | 3 codebooks | 4 codebooks |
+|---|---:|---:|---:|---:|
+| Executor initialization p50 (ms) | 0.001914 | 0.001503 | 0.001693 | 0.001744 |
+| File-backed row-window p50 (ms) | 0.004357 | 0.007294 | 0.010559 | 0.013685 |
+| File-backed row-window p95 (ms) | 0.004499 | 0.007384 | 0.010860 | 0.013765 |
+| Index payload bytes per 32-row window | 512 | 1,024 | 1,536 | 2,048 |
+
+The file-backed path returns the same output as the in-memory reference and reads only the index block selected for the requested rows after the codebook has been loaded. This validates the random-access file path end to end, but does not establish cold-storage performance or large-model throughput.
