@@ -67,7 +67,13 @@ impl ModelImportPlan {
                     "model contains a tensor unsupported by VQ import policy",
                 ));
             }
-            let (disposition, codebook_name, indices_name, calibration_samples, activation_second_moment) = if quantizable {
+            let (
+                disposition,
+                codebook_name,
+                indices_name,
+                calibration_samples,
+                activation_second_moment,
+            ) = if quantizable {
                 let codebook = format!("{}.hpsi_vq.codebook", tensor.name);
                 let indices = format!("{}.hpsi_vq.indices", tensor.name);
                 if !generated_names.insert(codebook.clone())
