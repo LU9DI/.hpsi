@@ -54,6 +54,66 @@ const MAX_WRITER_BLOCK_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_WRITER_FILE_BYTES: u64 = 1_u64 << 40;
 const MAX_WRITER_TENSOR_LOGICAL_BYTES: u64 = 1_u64 << 40;
 
+struct LimitedMetadataBuffer {
+    bytes: Vec<u8>,
+    max_bytes: usize,
+    limit_exceeded: bool,
+    allocation_failed: bool,
+}
+
+impl Write for LimitedMetadataBuffer {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let new_len = self.bytes.len().checked_add(buffer.len()).ok_or_else(|| {
+            self.limit_exceeded = true;
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "metadata size overflow")
+        })?;
+        if new_len > self.max_bytes {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "metadata byte limit exceeded",
+            ));
+        }
+        if self.bytes.try_reserve(buffer.len()).is_err() {
+            self.allocation_failed = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "metadata buffer allocation failed",
+            ));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Serialize metadata without allowing the output buffer to grow beyond its
+/// configured limit. Allocation failures are returned as format limit errors.
+pub fn serialize_metadata_limited(
+    value: &serde_json::Value,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut output = LimitedMetadataBuffer {
+        bytes: Vec::new(),
+        max_bytes,
+        limit_exceeded: false,
+        allocation_failed: false,
+    };
+    if serde_json::to_writer(&mut output, value).is_err() {
+        if output.limit_exceeded {
+            return Err(FormatError::LimitExceeded("writer metadata bytes"));
+        }
+        if output.allocation_failed {
+            return Err(FormatError::LimitExceeded("writer metadata allocation"));
+        }
+        return Err(FormatError::Io("could not serialize writer metadata".into()));
+    }
+    Ok(output.bytes)
+}
+
 fn clone_writer_name(name: &str) -> Result<String> {
     let mut cloned = String::new();
     cloned
@@ -187,11 +247,7 @@ impl ModelWriter {
         metadata_object.insert("format".into(), json!("hpsi"));
         metadata_object.insert("metadata_version".into(), json!(1));
         metadata_object.insert("tensor_names".into(), json!(names));
-        let metadata = serde_json::to_vec(&metadata_value)
-            .map_err(|error| FormatError::Io(error.to_string()))?;
-        if metadata.len() > MAX_WRITER_METADATA_BYTES {
-            return Err(FormatError::LimitExceeded("writer metadata bytes"));
-        }
+        let metadata = serialize_metadata_limited(&metadata_value, MAX_WRITER_METADATA_BYTES)?;
         crate::Metadata::parse(&metadata, &ReaderLimits::default())?;
         let metadata_off = 128_u64;
         let tensor_off = align8(
@@ -473,12 +529,8 @@ impl ModelWriter {
             return Err(FormatError::LimitExceeded("writer block count"));
         }
 
-        let metadata =
-            serde_json::to_vec(&json!({"format":"hpsi","metadata_version":1,"tensor_names":names}))
-                .map_err(|e| FormatError::Io(e.to_string()))?;
-        if metadata.len() > MAX_WRITER_METADATA_BYTES {
-            return Err(FormatError::LimitExceeded("writer metadata bytes"));
-        }
+        let metadata_value = json!({"format":"hpsi","metadata_version":1,"tensor_names":names});
+        let metadata = serialize_metadata_limited(&metadata_value, MAX_WRITER_METADATA_BYTES)?;
         let metadata_off = 128u64;
         let metadata_end = metadata_off
             .checked_add(metadata.len() as u64)
