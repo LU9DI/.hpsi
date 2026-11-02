@@ -158,6 +158,11 @@ fn view_rejects_mismatched_shapes_and_index_lengths() {
     let indices = vec![0_u8; 1];
     assert!(VqMatrixView::new(2, 16, 1, &codebook, &indices).is_err());
     assert!(VqMatrixView::new(1, 16, 1, &codebook, &indices).is_ok());
+
+    let odd_group_indices = [0xf0_u8];
+    assert!(VqMatrixView::new(1, 8, 1, &codebook, &odd_group_indices).is_err());
+    let valid_odd_group_indices = [0x0f_u8];
+    assert!(VqMatrixView::new(1, 8, 1, &codebook, &valid_odd_group_indices).is_ok());
 }
 
 #[test]
