@@ -48,6 +48,7 @@ const MAX_WRITER_TENSORS: usize = 250_000;
 const MAX_WRITER_BLOCKS: usize = 1_000_000;
 const MAX_WRITER_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WRITER_DIRECTORY_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_WRITER_BLOCK_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
 
 impl ModelWriter {
     /// Stream tensor payload blocks directly to the output.
@@ -132,6 +133,9 @@ impl ModelWriter {
                 .checked_add(tensor.block_lengths.len())
                 .ok_or(FormatError::ArithmeticOverflow("block count"))?;
             for length in &tensor.block_lengths {
+                if *length > MAX_WRITER_BLOCK_PAYLOAD_BYTES {
+                    return Err(FormatError::LimitExceeded("writer payload bytes per block"));
+                }
                 payload_bytes = payload_bytes
                     .checked_add(*length)
                     .ok_or(FormatError::ArithmeticOverflow("payload size"))?;
@@ -418,6 +422,9 @@ impl ModelWriter {
             for b in &t.blocks {
                 if b.bytes.is_empty() {
                     return Err(FormatError::InvalidBlock("empty payload block"));
+                }
+                if b.bytes.len() as u64 > MAX_WRITER_BLOCK_PAYLOAD_BYTES {
+                    return Err(FormatError::LimitExceeded("writer payload bytes per block"));
                 }
                 payload_bytes = payload_bytes
                     .checked_add(b.bytes.len() as u64)
@@ -1001,6 +1008,24 @@ mod streaming_writer_tests {
         let planned_size = u64::from_le_bytes(output.get_ref()[16..24].try_into().unwrap());
         assert_eq!(output.get_ref().len() as u64, planned_size);
     }
+    #[test]
+    fn streaming_writer_rejects_block_over_reader_default_limit_before_callback() {
+        let oversized = MAX_WRITER_BLOCK_PAYLOAD_BYTES + 1;
+        let tensors = vec![StreamingTensorInput {
+            tensor_id: 1,
+            name: "oversized".into(),
+            dtype: DType::U8,
+            dimensions: vec![oversized],
+            block_lengths: vec![oversized],
+        }];
+        let mut output = Cursor::new(Vec::new());
+        let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, _| {
+            panic!("preflight must reject oversized payload")
+        });
+        assert!(matches!(result, Err(FormatError::LimitExceeded("writer payload bytes per block"))));
+        assert!(output.get_ref().is_empty());
+    }
+
     #[test]
     fn streaming_writer_rejects_excessive_block_directories_before_writing() {
         let tensors = vec![StreamingTensorInput {
