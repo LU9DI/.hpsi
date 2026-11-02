@@ -221,80 +221,30 @@ impl SafeTensorFile {
         Ok(values)
     }
 
-    /// Read a row window of a rank-2 F32 tensor. Other dtypes are rejected, never silently cast.
+    /// Read a row window of a rank-2 floating tensor.
+    /// Other ranks and non-floating dtypes are rejected, never silently cast.
     pub fn read_f32_rows(
         &self,
         name: &str,
         first_row: u64,
         row_count: u64,
     ) -> Result<Vec<f32>, SafeTensorError> {
-        let t = self
+        let tensor = self
             .tensors
             .iter()
-            .find(|t| t.name == name)
+            .find(|tensor| tensor.name == name)
             .ok_or(SafeTensorError::InvalidTensor)?;
-        if t.shape.len() != 2 {
+        if tensor.shape.len() != 2 {
             return Err(SafeTensorError::UnsupportedDtype);
         }
-        let width = match t.dtype.as_str() {
-            "F32" => 4_u64,
-            "F16" | "BF16" => 2_u64,
-            _ => return Err(SafeTensorError::UnsupportedDtype),
-        };
-        let rows = t.shape[0];
-        let cols = t.shape[1];
-        let end_row = first_row
-            .checked_add(row_count)
-            .ok_or(SafeTensorError::OutOfBounds)?;
-        if end_row > rows {
-            return Err(SafeTensorError::OutOfBounds);
-        }
-        let elements = row_count
+        let cols = tensor.shape[1];
+        let first_element = first_row
             .checked_mul(cols)
             .ok_or(SafeTensorError::OutOfBounds)?;
-        let bytes_len = usize::try_from(
-            elements
-                .checked_mul(width)
-                .ok_or(SafeTensorError::OutOfBounds)?,
-        )
-        .map_err(|_| SafeTensorError::Allocation)?;
-        let relative = first_row
+        let element_count = row_count
             .checked_mul(cols)
-            .and_then(|v| v.checked_mul(width))
             .ok_or(SafeTensorError::OutOfBounds)?;
-        let offset = self
-            .data_start
-            .checked_add(t.data_start)
-            .and_then(|v| v.checked_add(relative))
-            .ok_or(SafeTensorError::OutOfBounds)?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(bytes_len)
-            .map_err(|_| SafeTensorError::Allocation)?;
-        bytes.resize(bytes_len, 0);
-        self.source
-            .read_exact_at(offset, &mut bytes)
-            .map_err(|_| SafeTensorError::Io)?;
-        let values = if width == 4 {
-            bytes
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                .collect()
-        } else if t.dtype == "BF16" {
-            bytes
-                .chunks_exact(2)
-                .map(|b| f32::from_bits(u32::from(u16::from_le_bytes([b[0], b[1]])) << 16))
-                .collect()
-        } else {
-            bytes
-                .chunks_exact(2)
-                .map(|b| f16_to_f32(u16::from_le_bytes([b[0], b[1]])))
-                .collect()
-        };
-        if values.iter().any(|value| !value.is_finite()) {
-            return Err(SafeTensorError::InvalidTensor);
-        }
-        Ok(values)
+        self.read_f32_elements(name, first_element, element_count)
     }
 }
 
