@@ -16,6 +16,7 @@ pub enum FormatError {
     InvalidTensor(&'static str),
     InvalidBlock(&'static str),
     InvalidReference(&'static str),
+    ChecksumMismatch,
     LimitExceeded(&'static str),
     Truncated { expected: usize, actual: usize },
     ArithmeticOverflow(&'static str),
@@ -39,6 +40,7 @@ impl fmt::Display for FormatError {
             Self::InvalidTensor(message) => write!(f, "invalid HPSI tensor: {message}"),
             Self::InvalidBlock(message) => write!(f, "invalid HPSI block: {message}"),
             Self::InvalidReference(message) => write!(f, "invalid HPSI reference: {message}"),
+            Self::ChecksumMismatch => f.write_str("HPSI integrity checksum mismatch"),
             Self::LimitExceeded(message) => write!(f, "reader limit exceeded: {message}"),
             Self::Truncated { expected, actual } => {
                 write!(
