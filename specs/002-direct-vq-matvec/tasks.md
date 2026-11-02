@@ -13,4 +13,5 @@
 - [x] T011 Record the four-rate CI benchmark and separate prepared-executor initialization from repeated HPSI row-window latency; pinned local CPU and file-backed storage measurements remain open.
 - [x] T012 Add a prepared HPSI VQ row executor that caches the shared codebook, validates a contiguous row-aligned block map once, and reads/computes only the requested row subranges on repeated calls.
 - [x] T013 Test partial row windows, repeated calls without codebook reload, and windows crossing index-block boundaries.
-- [ ] T014 Add a GPU kernel only after CPU correctness and profiling.
+- [x] T014 Precompute input-group/codebook-centroid dot products and reuse them across output rows; validate the optimized kernel against an independent scalar reference for all four rates.
+- [ ] T015 Add a GPU kernel only after pinned CPU profiling and larger matrix-shape benchmarks.
