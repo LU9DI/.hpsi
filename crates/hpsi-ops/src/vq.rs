@@ -347,7 +347,8 @@ impl VqMatrix {
             emit_row(row as u64, &packed_row)?;
         }
 
-        let codebook_len = config.codebook_count
+        let codebook_len = config
+            .codebook_count
             .checked_mul(CODEBOOK_VALUES)
             .ok_or(VqError("VQ codebook length overflow"))?;
         let mut flattened_codebook = Vec::new();
