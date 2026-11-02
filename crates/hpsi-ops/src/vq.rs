@@ -302,8 +302,7 @@ impl<'a> VqMatrixView<'a> {
             let input_offset = group * GROUP_SIZE;
             for stage in 0..self.codebook_count {
                 for centroid in 0..CODEBOOK_SIZE {
-                    let codebook_offset =
-                        stage * CODEBOOK_VALUES + centroid * GROUP_SIZE;
+                    let codebook_offset = stage * CODEBOOK_VALUES + centroid * GROUP_SIZE;
                     let mut dot = 0.0_f32;
                     for dimension in 0..GROUP_SIZE {
                         dot += input[input_offset + dimension]
@@ -328,8 +327,7 @@ impl<'a> VqMatrixView<'a> {
                     } else {
                         packed >> 4
                     });
-                    let table_index =
-                        (group * self.codebook_count + stage) * CODEBOOK_SIZE + code;
+                    let table_index = (group * self.codebook_count + stage) * CODEBOOK_SIZE + code;
                     accumulator += dot_products[table_index];
                 }
             }
