@@ -1,5 +1,6 @@
-use hpsi_format::{ModelWriter, WriterStats};
-use hpsi_ops::{VqConfig, VqMatrix};
+use hpsi_format::{MemorySource, ModelReader, ModelWriter, ReaderLimits, WriterStats};
+use hpsi_ops::{HpsiVqLayout, VqConfig, VqMatrix, matvec_hpsi_rows};
+use std::sync::Arc;
 use std::hint::black_box;
 use std::io::Cursor;
 use std::time::{Duration, Instant};
@@ -100,12 +101,53 @@ fn evaluate_quality(weights: &[f32], matrix: &VqMatrix) -> (f64, f64) {
     (relative_l2, f64::from(max_absolute_error))
 }
 
-fn write_hpsi_artifact(matrix: &VqMatrix) -> WriterStats {
+fn make_hpsi_reader(matrix: &VqMatrix, block_rows: usize) -> (ModelReader, WriterStats) {
     let tensors = matrix
-        .to_hpsi_tensors(10, 11, 64 * 1024)
+        .to_hpsi_tensors(10, 11, block_rows)
         .expect("valid tensor export");
     let mut artifact = Cursor::new(Vec::new());
-    ModelWriter::write(&mut artifact, &tensors).expect("valid HPSI export")
+    let stats = ModelWriter::write(&mut artifact, &tensors).expect("valid HPSI export");
+    let reader = ModelReader::open(
+        Arc::new(MemorySource::new(artifact.into_inner())),
+        &ReaderLimits::default(),
+    )
+    .expect("valid HPSI artifact");
+    (reader, stats)
+}
+
+fn measure_hpsi_row_window(
+    reader: &ModelReader,
+    matrix: &VqMatrix,
+    input: &[f32],
+) -> (f64, f64, u64) {
+    const FIRST_ROW: usize = 64;
+    const WINDOW_ROWS: usize = 32;
+    let layout = HpsiVqLayout {
+        codebook_tensor_id: 10,
+        indices_tensor_id: 11,
+        rows: matrix.rows(),
+        cols: matrix.cols(),
+        codebook_count: matrix.codebook_count(),
+    };
+    let mut expected = vec![0.0_f32; matrix.rows()];
+    matrix.view().matvec(input, &mut expected).expect("valid VQ view");
+    let mut output = vec![0.0_f32; WINDOW_ROWS];
+    matvec_hpsi_rows(reader, layout, input, FIRST_ROW, &mut output)
+        .expect("valid HPSI row window");
+    assert_eq!(output, expected[FIRST_ROW..FIRST_ROW + WINDOW_ROWS]);
+
+    let bytes_before = reader.stats().payload_bytes_read;
+    let mut durations = Vec::with_capacity(LATENCY_REPETITIONS);
+    for _ in 0..LATENCY_REPETITIONS {
+        let start = Instant::now();
+        matvec_hpsi_rows(reader, layout, input, FIRST_ROW, &mut output)
+            .expect("valid HPSI row window");
+        durations.push(start.elapsed());
+    }
+    let bytes_read = reader.stats().payload_bytes_read - bytes_before;
+    let p50 = percentile_ms(&mut durations, 50);
+    let p95 = percentile_ms(&mut durations, 95);
+    (p50, p95, bytes_read / LATENCY_REPETITIONS as u64)
 }
 
 fn main() {
@@ -154,10 +196,12 @@ fn main() {
     .expect("valid four-stage synthetic matrix");
     let encode16_ms = encode_four_start.elapsed().as_secs_f64() * 1_000.0;
 
-    let artifact4 = write_hpsi_artifact(&matrix4);
-    let artifact8 = write_hpsi_artifact(&matrix8);
-    let artifact12 = write_hpsi_artifact(&matrix12);
-    let artifact16 = write_hpsi_artifact(&matrix16);
+    // Eight independently addressable 32-row index blocks make the
+    // selected-row benchmark exercise the actual HPSI block reader.
+    let (reader4, artifact4) = make_hpsi_reader(&matrix4, 32);
+    let (reader8, artifact8) = make_hpsi_reader(&matrix8, 32);
+    let (reader12, artifact12) = make_hpsi_reader(&matrix12, 32);
+    let (reader16, artifact16) = make_hpsi_reader(&matrix16, 32);
     let quality4 = evaluate_quality(&weights, &matrix4);
     let quality8 = evaluate_quality(&weights, &matrix8);
     let quality12 = evaluate_quality(&weights, &matrix12);
@@ -168,6 +212,10 @@ fn main() {
     let vq8_latency = measure_vq(&matrix8, &input);
     let vq12_latency = measure_vq(&matrix12, &input);
     let vq16_latency = measure_vq(&matrix16, &input);
+    let hpsi4_latency = measure_hpsi_row_window(&reader4, &matrix4, &input);
+    let hpsi8_latency = measure_hpsi_row_window(&reader8, &matrix8, &input);
+    let hpsi12_latency = measure_hpsi_row_window(&reader12, &matrix12, &input);
+    let hpsi16_latency = measure_hpsi_row_window(&reader16, &matrix16, &input);
 
     println!("HPSI direct VQ matvec — deterministic synthetic baseline");
     println!("matrix_shape: {ROWS}x{COLS}");
@@ -189,6 +237,9 @@ fn main() {
     println!("single_heldout_max_absolute_error: {:.6}", quality4.1);
     println!("single_direct_matvec_p50_ms: {:.6}", vq4_latency.0);
     println!("single_direct_matvec_p95_ms: {:.6}", vq4_latency.1);
+    println!("single_hpsi_32_row_window_p50_ms: {:.6}", hpsi4_latency.0);
+    println!("single_hpsi_32_row_window_p95_ms: {:.6}", hpsi4_latency.1);
+    println!("single_hpsi_payload_bytes_per_32_row_window: {}", hpsi4_latency.2);
 
     println!("additive_codebook_count: 2");
     println!("additive_selector_bits_per_group: 8");
@@ -203,6 +254,9 @@ fn main() {
     println!("additive_heldout_max_absolute_error: {:.6}", quality8.1);
     println!("additive_direct_matvec_p50_ms: {:.6}", vq8_latency.0);
     println!("additive_direct_matvec_p95_ms: {:.6}", vq8_latency.1);
+    println!("additive_hpsi_32_row_window_p50_ms: {:.6}", hpsi8_latency.0);
+    println!("additive_hpsi_32_row_window_p95_ms: {:.6}", hpsi8_latency.1);
+    println!("additive_hpsi_payload_bytes_per_32_row_window: {}", hpsi8_latency.2);
 
     println!("three_codebook_count: 3");
     println!("three_selector_bits_per_group: 12");
@@ -217,6 +271,9 @@ fn main() {
     println!("three_heldout_max_absolute_error: {:.6}", quality12.1);
     println!("three_direct_matvec_p50_ms: {:.6}", vq12_latency.0);
     println!("three_direct_matvec_p95_ms: {:.6}", vq12_latency.1);
+    println!("three_hpsi_32_row_window_p50_ms: {:.6}", hpsi12_latency.0);
+    println!("three_hpsi_32_row_window_p95_ms: {:.6}", hpsi12_latency.1);
+    println!("three_hpsi_payload_bytes_per_32_row_window: {}", hpsi12_latency.2);
 
     println!("four_codebook_count: 4");
     println!("four_selector_bits_per_group: 16");
@@ -231,6 +288,9 @@ fn main() {
     println!("four_heldout_max_absolute_error: {:.6}", quality16.1);
     println!("four_direct_matvec_p50_ms: {:.6}", vq16_latency.0);
     println!("four_direct_matvec_p95_ms: {:.6}", vq16_latency.1);
+    println!("four_hpsi_32_row_window_p50_ms: {:.6}", hpsi16_latency.0);
+    println!("four_hpsi_32_row_window_p95_ms: {:.6}", hpsi16_latency.1);
+    println!("four_hpsi_payload_bytes_per_32_row_window: {}", hpsi16_latency.2);
 
     println!(
         "checksum_guard: {:.6}",
