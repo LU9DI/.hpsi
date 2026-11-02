@@ -716,7 +716,7 @@ impl ModelWriter {
         result
     }
 }
- 
+
 #[cfg(test)]
 mod streaming_writer_tests {
     use super::*;
@@ -742,13 +742,15 @@ mod streaming_writer_tests {
                 writer.write_all(&payloads[block_index]).map_err(ioerr)?;
                 Ok(payloads[block_index].len() as u64)
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(stats.payload_bytes, 6);
         assert_eq!(stats.block_count, 2);
         let reader = ModelReader::open(
             Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
             &ReaderLimits::default(),
-        ).unwrap();
+        )
+        .unwrap();
         reader.verify_all().unwrap();
         assert_eq!(reader.read_tensor(7).unwrap(), [1_u8, 2, 3, 4, 5, 6]);
     }
