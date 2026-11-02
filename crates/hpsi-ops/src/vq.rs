@@ -208,16 +208,10 @@ impl VqMatrix {
         packed_indices
             .try_reserve_exact(packed_len)
             .map_err(|_| VqError("could not allocate packed selector matrix"))?;
-        let codebook = Self::encode_from_reader_to(
-            rows,
-            cols,
-            config,
-            read_elements,
-            |_, row| {
-                packed_indices.extend_from_slice(row);
-                Ok(())
-            },
-        )?;
+        let codebook = Self::encode_from_reader_to(rows, cols, config, read_elements, |_, row| {
+            packed_indices.extend_from_slice(row);
+            Ok(())
+        })?;
         Ok(Self {
             rows,
             cols,
@@ -479,17 +473,11 @@ impl VqMatrix {
             .map_err(|_| VqError("could not rewind selector spool"))?;
         let selectors = selectors_per_row(cols, config.codebook_count)?;
         let bytes_per_row = selectors / 2;
-        let codebook = Self::encode_from_reader_to(
-            rows,
-            cols,
-            config,
-            read_elements,
-            |_, row| {
-                spool
-                    .write_all(row)
-                    .map_err(|_| VqError("could not spool packed selector row"))
-            },
-        )?;
+        let codebook = Self::encode_from_reader_to(rows, cols, config, read_elements, |_, row| {
+            spool
+                .write_all(row)
+                .map_err(|_| VqError("could not spool packed selector row"))
+        })?;
         spool
             .flush()
             .map_err(|_| VqError("could not flush selector spool"))?;
