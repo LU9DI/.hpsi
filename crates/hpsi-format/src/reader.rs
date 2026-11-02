@@ -605,9 +605,9 @@ fn next_reference(
     representation_pending: &mut bool,
     next_block: &mut usize,
 ) -> Result<Option<usize>> {
-    let tensor = tensors
-        .get(node)
-        .ok_or(FormatError::InvalidReference("reference graph node is out of range"))?;
+    let tensor = tensors.get(node).ok_or(FormatError::InvalidReference(
+        "reference graph node is out of range",
+    ))?;
 
     if *representation_pending {
         *representation_pending = false;
@@ -615,9 +615,12 @@ fn next_reference(
             let id = u32::try_from(reference).map_err(|_| {
                 FormatError::InvalidReference("tensor representation ID exceeds supported width")
             })?;
-            let target = lookup.get(&id).copied().ok_or(FormatError::InvalidReference(
-                "tensor representation reference is missing",
-            ))?;
+            let target = lookup
+                .get(&id)
+                .copied()
+                .ok_or(FormatError::InvalidReference(
+                    "tensor representation reference is missing",
+                ))?;
             return Ok(Some(target));
         }
     }
@@ -639,9 +642,12 @@ fn next_reference(
             let id = u32::try_from(reference).map_err(|_| {
                 FormatError::InvalidReference("block auxiliary ID exceeds supported width")
             })?;
-            let target = lookup.get(&id).copied().ok_or(FormatError::InvalidReference(
-                "block auxiliary reference is missing",
-            ))?;
+            let target = lookup
+                .get(&id)
+                .copied()
+                .ok_or(FormatError::InvalidReference(
+                    "block auxiliary reference is missing",
+                ))?;
             return Ok(Some(target));
         }
     }
