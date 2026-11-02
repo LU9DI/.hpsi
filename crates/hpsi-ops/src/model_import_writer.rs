@@ -1,6 +1,6 @@
 use crate::{
-    CODEBOOK_SIZE, CalibratedModelImportPlan, CalibrationProvenance, GROUP_SIZE, ModelImportPlan, SafeTensorFile, TensorDisposition, VqConfig,
-    VqError, VqMatrix,
+    CODEBOOK_SIZE, CalibratedModelImportPlan, CalibrationProvenance, GROUP_SIZE, ModelImportPlan,
+    SafeTensorFile, TensorDisposition, VqConfig, VqError, VqMatrix,
 };
 use hpsi_format::{
     DType, FileSource, ModelReader, ModelWriter, ReaderLimits, StreamingTensorInput, WriterStats,
@@ -348,17 +348,28 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
             if calibration.source_name.trim().is_empty()
                 || previous.is_some_and(|name| name >= calibration.source_name.as_str())
                 || calibration.model_type.trim().is_empty()
-                || calibration.model_revision.as_deref().is_some_and(|value| value.trim().is_empty())
+                || calibration
+                    .model_revision
+                    .as_deref()
+                    .is_some_and(|value| value.trim().is_empty())
                 || calibration.sample_count == 0
                 || calibration.features == 0
                 || calibration.statistic != "diagonal_second_moment"
                 || calibration.dataset_sha256.len() != 64
-                || !calibration.dataset_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+                || !calibration
+                    .dataset_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
             {
-                return Err(VqError("calibration provenance is invalid or not uniquely sorted"));
+                return Err(VqError(
+                    "calibration provenance is invalid or not uniquely sorted",
+                ));
             }
             previous = Some(&calibration.source_name);
-            if calibration_by_name.insert(calibration.source_name.as_str(), calibration).is_some() {
+            if calibration_by_name
+                .insert(calibration.source_name.as_str(), calibration)
+                .is_some()
+            {
                 return Err(VqError("duplicate calibration provenance tensor name"));
             }
         }
@@ -487,24 +498,35 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                 (TensorDisposition::QuantizeVq, Some(item)) => {
                     if planned.calibration_samples != Some(item.sample_count)
                         || u64::try_from(item.features).ok() != planned.source_shape.get(1).copied()
-                        || planned.activation_second_moment.as_ref().map(Vec::len) != Some(item.features)
+                        || planned.activation_second_moment.as_ref().map(Vec::len)
+                            != Some(item.features)
                     {
-                        return Err(VqError("calibration provenance does not match planned VQ tensor"));
+                        return Err(VqError(
+                            "calibration provenance does not match planned VQ tensor",
+                        ));
                     }
                 }
                 (TensorDisposition::QuantizeVq, None) => {
-                    if planned.calibration_samples.is_some() || planned.activation_second_moment.is_some() {
-                        return Err(VqError("calibrated VQ tensor is missing persisted provenance"));
+                    if planned.calibration_samples.is_some()
+                        || planned.activation_second_moment.is_some()
+                    {
+                        return Err(VqError(
+                            "calibrated VQ tensor is missing persisted provenance",
+                        ));
                     }
                 }
                 (TensorDisposition::PreserveRaw, Some(_)) => {
-                    return Err(VqError("raw-preserved tensor cannot have calibration provenance"));
+                    return Err(VqError(
+                        "raw-preserved tensor cannot have calibration provenance",
+                    ));
                 }
                 (TensorDisposition::PreserveRaw, None) => {}
             }
         }
         if calibration_by_name.len() > plan.tensors.len() {
-            return Err(VqError("calibration provenance references an unknown source tensor"));
+            return Err(VqError(
+                "calibration provenance references an unknown source tensor",
+            ));
         }
     }
 
