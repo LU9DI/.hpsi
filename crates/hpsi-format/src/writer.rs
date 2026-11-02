@@ -3,8 +3,8 @@ use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone)]
 pub struct PayloadBlock {
@@ -336,7 +336,6 @@ fn crc32c(b: &[u8]) -> u32 {
     !c
 }
 
-
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 impl ModelWriter {
@@ -358,10 +357,7 @@ impl ModelWriter {
             let mut created = None;
             for _ in 0..128 {
                 let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let candidate = parent.join(format!(
-                    ".hpsi-{}-{sequence}.tmp",
-                    std::process::id()
-                ));
+                let candidate = parent.join(format!(".hpsi-{}-{sequence}.tmp", std::process::id()));
                 match OpenOptions::new()
                     .read(true)
                     .write(true)

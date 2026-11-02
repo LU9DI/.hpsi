@@ -97,7 +97,6 @@ fn rejects_invalid_tensor_metadata_reference() {
     assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
 }
 
-
 struct RecordingSource {
     inner: MemorySource,
     reads: Mutex<Vec<(u64, usize)>>,

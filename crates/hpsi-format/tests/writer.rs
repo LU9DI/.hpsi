@@ -1,5 +1,6 @@
 use hpsi_format::{
-    DType, FileSource, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits, TensorInput,
+    DType, FileSource, MemorySource, ModelReader, ModelWriter, PayloadBlock, ReaderLimits,
+    TensorInput,
 };
 use std::io::Cursor;
 use std::sync::Arc;
@@ -95,7 +96,6 @@ fn verify_detects_payload_corruption() {
     ));
 }
 
-
 #[test]
 fn write_path_verifies_before_publish_and_never_overwrites() {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -110,7 +110,9 @@ fn write_path_verifies_before_publish_and_never_overwrites() {
         name: "atomic.weight".into(),
         dtype: DType::U8,
         dimensions: vec![3],
-        blocks: vec![PayloadBlock { bytes: vec![3, 4, 5] }],
+        blocks: vec![PayloadBlock {
+            bytes: vec![3, 4, 5],
+        }],
     };
 
     let stats = ModelWriter::write_path(&path, std::slice::from_ref(&tensor)).unwrap();
@@ -123,7 +125,8 @@ fn write_path_verifies_before_publish_and_never_overwrites() {
     let reader = ModelReader::open(
         Arc::new(FileSource::open(&path).unwrap()),
         &ReaderLimits::default(),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(reader.verify_all().unwrap(), 2);
     std::fs::remove_file(path).unwrap();
 }
