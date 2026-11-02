@@ -592,66 +592,77 @@ fn validate_reference_cycles(
     blocks: &[BlockDescriptor],
     lookup: &HashMap<u32, usize>,
 ) -> Result<()> {
-    let mut edges = Vec::new();
-    edges
-        .try_reserve_exact(tensors.len())
-        .map_err(|_| FormatError::LimitExceeded("reference graph allocation failed"))?;
-    edges.resize_with(tensors.len(), Vec::<usize>::new);
+    // Traverse references directly from descriptors. Materializing Vec<Vec<usize>>
+    // here duplicates potentially millions of edges and allocates one Vec per tensor.
+    validate_acyclic_references(tensors, blocks, lookup)
+}
 
-    for (index, tensor) in tensors.iter().enumerate() {
+fn next_reference(
+    tensors: &[TensorDescriptor],
+    blocks: &[BlockDescriptor],
+    lookup: &HashMap<u32, usize>,
+    node: usize,
+    representation_pending: &mut bool,
+    next_block: &mut usize,
+) -> Result<Option<usize>> {
+    let tensor = tensors
+        .get(node)
+        .ok_or(FormatError::InvalidReference("reference graph node is out of range"))?;
+
+    if *representation_pending {
+        *representation_pending = false;
         if let Some(reference) = tensor.representation_ref {
-            let target = u32::try_from(reference)
-                .ok()
-                .and_then(|id| lookup.get(&id).copied())
-                .ok_or(FormatError::InvalidReference(
-                    "tensor representation reference is missing",
-                ))?;
-            edges[index]
-                .try_reserve(1)
-                .map_err(|_| FormatError::LimitExceeded("reference edge allocation failed"))?;
-            edges[index].push(target);
-        }
-
-        let start = usize::try_from(tensor.first_block_index).map_err(|_| {
-            FormatError::InvalidDirectory("reference block index exceeds address space")
-        })?;
-        let end = start
-            .checked_add(tensor.block_count as usize)
-            .ok_or(FormatError::ArithmeticOverflow("reference block range"))?;
-        let tensor_blocks = blocks.get(start..end).ok_or(FormatError::InvalidDirectory(
-            "reference block range exceeds directory",
-        ))?;
-        for block in tensor_blocks {
-            if let Some(reference) = block.auxiliary_ref {
-                let target = u32::try_from(reference)
-                    .ok()
-                    .and_then(|id| lookup.get(&id).copied())
-                    .ok_or(FormatError::InvalidReference(
-                        "block auxiliary reference is missing",
-                    ))?;
-                edges[index]
-                    .try_reserve(1)
-                    .map_err(|_| FormatError::LimitExceeded("reference edge allocation failed"))?;
-                edges[index].push(target);
-            }
+            let id = u32::try_from(reference).map_err(|_| {
+                FormatError::InvalidReference("tensor representation ID exceeds supported width")
+            })?;
+            let target = lookup.get(&id).copied().ok_or(FormatError::InvalidReference(
+                "tensor representation reference is missing",
+            ))?;
+            return Ok(Some(target));
         }
     }
 
-    validate_acyclic_graph(&edges)
+    let start = usize::try_from(tensor.first_block_index).map_err(|_| {
+        FormatError::InvalidDirectory("reference block index exceeds address space")
+    })?;
+    let end = start
+        .checked_add(tensor.block_count as usize)
+        .ok_or(FormatError::ArithmeticOverflow("reference block range"))?;
+    let tensor_blocks = blocks.get(start..end).ok_or(FormatError::InvalidDirectory(
+        "reference block range exceeds directory",
+    ))?;
+
+    while *next_block < tensor_blocks.len() {
+        let block = &tensor_blocks[*next_block];
+        *next_block += 1;
+        if let Some(reference) = block.auxiliary_ref {
+            let id = u32::try_from(reference).map_err(|_| {
+                FormatError::InvalidReference("block auxiliary ID exceeds supported width")
+            })?;
+            let target = lookup.get(&id).copied().ok_or(FormatError::InvalidReference(
+                "block auxiliary reference is missing",
+            ))?;
+            return Ok(Some(target));
+        }
+    }
+    Ok(None)
 }
 
-fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
+fn validate_acyclic_references(
+    tensors: &[TensorDescriptor],
+    blocks: &[BlockDescriptor],
+    lookup: &HashMap<u32, usize>,
+) -> Result<()> {
     // 0 = unseen, 1 = active DFS path, 2 = fully processed.
-    // Keep the next-edge cursor in each frame so converging edges are not
-    // mistaken for cycles merely because a node was queued more than once.
+    // The stack stores cursors into descriptors, not a materialized adjacency list.
     let mut color = Vec::new();
     color
-        .try_reserve_exact(edges.len())
+        .try_reserve_exact(tensors.len())
         .map_err(|_| FormatError::LimitExceeded("reference traversal allocation failed"))?;
-    color.resize(edges.len(), 0_u8);
+    color.resize(tensors.len(), 0_u8);
 
-    let mut stack: Vec<(usize, usize)> = Vec::new();
-    for start in 0..edges.len() {
+    let mut stack: Vec<(usize, usize, bool)> = Vec::new();
+    for start in 0..tensors.len() {
         if color[start] != 0 {
             continue;
         }
@@ -659,19 +670,25 @@ fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
         stack.try_reserve(1).map_err(|_| {
             FormatError::LimitExceeded("reference traversal stack allocation failed")
         })?;
-        stack.push((start, 0));
+        stack.push((start, 0, true));
 
-        while let Some((node, next_edge)) = stack.last_mut() {
-            if *next_edge == edges[*node].len() {
+        while let Some((node, next_block, representation_pending)) = stack.last_mut() {
+            let dependency = next_reference(
+                tensors,
+                blocks,
+                lookup,
+                *node,
+                representation_pending,
+                next_block,
+            )?;
+            let Some(dependency) = dependency else {
                 let finished = *node;
                 stack.pop();
                 color[finished] = 2;
                 continue;
-            }
+            };
 
-            let dependency = edges[*node][*next_edge];
-            *next_edge += 1;
-            if dependency >= edges.len() {
+            if dependency >= tensors.len() {
                 return Err(FormatError::InvalidReference(
                     "reference graph target is out of range",
                 ));
@@ -688,7 +705,7 @@ fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
                     stack.try_reserve(1).map_err(|_| {
                         FormatError::LimitExceeded("reference traversal stack allocation failed")
                     })?;
-                    stack.push((dependency, 0));
+                    stack.push((dependency, 0, true));
                 }
             }
         }
