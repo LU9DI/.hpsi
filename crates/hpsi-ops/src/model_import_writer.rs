@@ -68,7 +68,10 @@ impl Write for ImportSpool {
         let file = self.file.as_mut().expect("spool is open");
         let position = file.stream_position()?;
         let bytes_len = u64::try_from(bytes.len()).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::Other, "import spool write exceeds format range")
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "import spool write exceeds format range",
+            )
         })?;
         let end = position.checked_add(bytes_len).ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::Other, "import spool size overflow")
