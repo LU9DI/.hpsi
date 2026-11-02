@@ -94,8 +94,7 @@ impl<'de> Deserialize<'de> for NoDuplicateJson {
 
 fn reject_duplicate_json_keys(bytes: &[u8]) -> Result<(), SafeTensorError> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    NoDuplicateJson::deserialize(&mut deserializer)
-        .map_err(|_| SafeTensorError::InvalidHeader)?;
+    NoDuplicateJson::deserialize(&mut deserializer).map_err(|_| SafeTensorError::InvalidHeader)?;
     deserializer
         .end()
         .map_err(|_| SafeTensorError::InvalidHeader)
@@ -536,10 +535,7 @@ mod tests {
             bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
             bytes.extend_from_slice(header.as_bytes());
             assert!(matches!(
-                SafeTensorFile::open(
-                    Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-                    4096,
-                ),
+                SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096,),
                 Err(SafeTensorError::InvalidHeader)
             ));
         }
