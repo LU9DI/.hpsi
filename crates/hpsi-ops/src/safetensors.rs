@@ -63,7 +63,7 @@ impl SafeTensorFile {
             let elements=shape.iter().try_fold(1_u64,|a,&b|a.checked_mul(b).ok_or(SafeTensorError::InvalidTensor))?;
             let width=match dtype.as_str() { "F32"=>4,"F16"|"BF16"=>2,"F64"=>8,"I64"=>8,"I32"=>4,"I16"=>2,"I8"|"U8"|"BOOL"=>1,_=>return Err(SafeTensorError::UnsupportedDtype) };
             if elements.checked_mul(width).ok_or(SafeTensorError::InvalidTensor)? != end-start { return Err(SafeTensorError::InvalidTensor); }
-            tensors.push(SafeTensorInfo{name,dtype,shape,data_start:start,data_end:end});
+            tensors.push(SafeTensorInfo{name:name.to_owned(),dtype,shape,data_start:start,data_end:end});
         }
         tensors.sort_by_key(|t|t.data_start);
         for pair in tensors.windows(2) { if pair[0].data_end>pair[1].data_start { return Err(SafeTensorError::InvalidTensor); } }
