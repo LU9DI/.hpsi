@@ -2,15 +2,17 @@ use crate::{
     CODEBOOK_SIZE, GROUP_SIZE, ModelImportPlan, SafeTensorFile, TensorDisposition, VqConfig,
     VqError, VqMatrix,
 };
-use hpsi_format::{DType, FileSource, ModelReader, ModelWriter, ReaderLimits, StreamingTensorInput, WriterStats};
+use hpsi_format::{
+    DType, FileSource, ModelReader, ModelWriter, ReaderLimits, StreamingTensorInput, WriterStats,
+};
 use serde_json::json;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
-use std::path::Path;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const COPY_CHUNK_BYTES: usize = 64 * 1024;
@@ -90,7 +92,6 @@ fn source_dtype(dtype: &str) -> Result<DType, VqError> {
     }
 }
 
-
 static IMPORT_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Build, reopen, verify, and publish a model import without exposing a partial
@@ -107,16 +108,28 @@ pub fn write_model_import_to_hpsi_path(
     if destination.file_name().is_none() {
         return Err(VqError("destination must name a file"));
     }
-    let parent = destination.parent()
+    let parent = destination
+        .parent()
         .filter(|value| !value.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let (temporary_path, mut temporary_file) = {
         let mut created = None;
         for _ in 0..128 {
             let sequence = IMPORT_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let candidate = parent.join(format!(".hpsi-import-{}-{sequence}.tmp", std::process::id()));
-            match OpenOptions::new().read(true).write(true).create_new(true).open(&candidate) {
-                Ok(file) => { created = Some((candidate, file)); break; }
+            let candidate = parent.join(format!(
+                ".hpsi-import-{}-{sequence}.tmp",
+                std::process::id()
+            ));
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    created = Some((candidate, file));
+                    break;
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(_) => return Err(VqError("could not create temporary HPSI output")),
             }
@@ -124,18 +137,27 @@ pub fn write_model_import_to_hpsi_path(
         created.ok_or(VqError("could not allocate temporary HPSI output"))?
     };
     let result = (|| {
-        let stats = write_model_import_to_hpsi(source, plan, &mut temporary_file, config, block_rows)?;
-        temporary_file.sync_all().map_err(|_| VqError("could not sync temporary HPSI output"))?;
+        let stats =
+            write_model_import_to_hpsi(source, plan, &mut temporary_file, config, block_rows)?;
+        temporary_file
+            .sync_all()
+            .map_err(|_| VqError("could not sync temporary HPSI output"))?;
         drop(temporary_file);
-        let file_source = Arc::new(FileSource::open(&temporary_path)
-            .map_err(|_| VqError("could not reopen temporary HPSI output"))?);
+        let file_source = Arc::new(
+            FileSource::open(&temporary_path)
+                .map_err(|_| VqError("could not reopen temporary HPSI output"))?,
+        );
         let reader = ModelReader::open(file_source, &ReaderLimits::default())
             .map_err(|_| VqError("temporary HPSI output failed to reopen"))?;
-        reader.verify_all().map_err(|_| VqError("temporary HPSI output failed integrity verification"))?;
+        reader
+            .verify_all()
+            .map_err(|_| VqError("temporary HPSI output failed integrity verification"))?;
         fs::hard_link(&temporary_path, destination)
             .map_err(|_| VqError("could not publish HPSI output without overwriting"))?;
         #[cfg(unix)]
-        if let Ok(directory) = fs::File::open(parent) { let _ = directory.sync_all(); }
+        if let Ok(directory) = fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
         Ok(stats)
     })();
     drop(temporary_file);
@@ -724,13 +746,11 @@ mod tests {
         assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
     }
 }
-    #[test]
-    fn import_spool_is_removed_when_dropped() {
-        let spool = ImportSpool::create().unwrap();
-        let path = spool.path.clone();
-        assert!(path.exists());
-        drop(spool);
-        assert!(!path.exists());
-    }
-
-
+#[test]
+fn import_spool_is_removed_when_dropped() {
+    let spool = ImportSpool::create().unwrap();
+    let path = spool.path.clone();
+    assert!(path.exists());
+    drop(spool);
+    assert!(!path.exists());
+}
