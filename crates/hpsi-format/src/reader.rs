@@ -788,7 +788,9 @@ impl Crc32c {
 #[cfg(test)]
 mod tests {
     use super::{Crc32c, validate_acyclic_references, verify_padding_regions};
-    use crate::{BlockDescriptor, DType, FormatError, RandomAccessSource, Region, Result, TensorDescriptor};
+    use crate::{
+        BlockDescriptor, DType, FormatError, RandomAccessSource, Region, Result, TensorDescriptor,
+    };
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -965,7 +967,11 @@ mod tests {
             graph_block(20, 0, Some(40)),
             graph_block(30, 0, Some(40)),
         ];
-        let lookup = tensors.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        let lookup = tensors
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.tensor_id, i))
+            .collect::<HashMap<_, _>>();
         assert!(validate_acyclic_references(&tensors, &blocks, &lookup).is_ok());
     }
 
@@ -975,21 +981,30 @@ mod tests {
             graph_tensor(10, 0, 0, Some(20)),
             graph_tensor(20, 0, 0, Some(10)),
         ];
-        let lookup = representation_cycle.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        let lookup = representation_cycle
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.tensor_id, i))
+            .collect::<HashMap<_, _>>();
         assert!(matches!(
             validate_acyclic_references(&representation_cycle, &[], &lookup),
-            Err(FormatError::InvalidReference("cyclic auxiliary tensor references"))
+            Err(FormatError::InvalidReference(
+                "cyclic auxiliary tensor references"
+            ))
         ));
 
-        let auxiliary_cycle = [
-            graph_tensor(10, 0, 1, None),
-            graph_tensor(20, 1, 1, None),
-        ];
+        let auxiliary_cycle = [graph_tensor(10, 0, 1, None), graph_tensor(20, 1, 1, None)];
         let blocks = [graph_block(10, 0, Some(20)), graph_block(20, 0, Some(10))];
-        let lookup = auxiliary_cycle.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        let lookup = auxiliary_cycle
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.tensor_id, i))
+            .collect::<HashMap<_, _>>();
         assert!(matches!(
             validate_acyclic_references(&auxiliary_cycle, &blocks, &lookup),
-            Err(FormatError::InvalidReference("cyclic auxiliary tensor references"))
+            Err(FormatError::InvalidReference(
+                "cyclic auxiliary tensor references"
+            ))
         ));
     }
 
@@ -999,7 +1014,9 @@ mod tests {
         let lookup = HashMap::from([(10, 0)]);
         assert!(matches!(
             validate_acyclic_references(&tensors, &[], &lookup),
-            Err(FormatError::InvalidReference("tensor representation reference is missing"))
+            Err(FormatError::InvalidReference(
+                "tensor representation reference is missing"
+            ))
         ));
     }
 
