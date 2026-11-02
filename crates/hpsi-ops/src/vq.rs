@@ -1313,7 +1313,9 @@ fn beam_search_additive(
     beam_width: usize,
 ) -> Result<([f32; GROUP_SIZE], [u8; 4]), VqError> {
     if !(1..=4).contains(&codebooks.len()) && !codebooks.is_empty() {
-        return Err(VqError("additive beam search supports at most four codebooks"));
+        return Err(VqError(
+            "additive beam search supports at most four codebooks",
+        ));
     }
     if !(1..=256).contains(&beam_width) {
         return Err(VqError("beam width must be between 1 and 256"));
@@ -1377,12 +1379,10 @@ mod additive_beam_search_tests {
         let vector = [0.0_f32; GROUP_SIZE];
         assert!(beam_search_additive(&vector, &[], 0).is_err());
         assert!(beam_search_additive(&vector, &[Vec::new()], 1).is_err());
-        assert!(beam_search_additive(
-            &vector,
-            &[vec![[0.0; GROUP_SIZE]; CODEBOOK_SIZE + 1]],
-            1,
-        )
-        .is_err());
+        assert!(
+            beam_search_additive(&vector, &[vec![[0.0; GROUP_SIZE]; CODEBOOK_SIZE + 1]], 1,)
+                .is_err()
+        );
         let too_many_codebooks = vec![vec![[0.0; GROUP_SIZE]; 1]; 5];
         assert!(beam_search_additive(&vector, &too_many_codebooks, 1).is_err());
     }
