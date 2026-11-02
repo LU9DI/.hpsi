@@ -592,20 +592,17 @@ fn validate_integrity_coverage(
     }
 
     for (block_index, block) in blocks.iter().enumerate() {
-        match block.checksum_index {
-            Some(index) => {
-                let record = integrity
-                    .get(index as usize)
-                    .ok_or(FormatError::InvalidReference(
-                        "block checksum index is out of range",
-                    ))?;
-                if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
-                    return Err(FormatError::InvalidReference(
-                        "block checksum target mismatch",
-                    ));
-                }
+        if let Some(index) = block.checksum_index {
+            let record = integrity
+                .get(index as usize)
+                .ok_or(FormatError::InvalidReference(
+                    "block checksum index is out of range",
+                ))?;
+            if record.target != IntegrityTarget::BlockPayload(block_index as u32) {
+                return Err(FormatError::InvalidReference(
+                    "block checksum target mismatch",
+                ));
             }
-            None => {}
         }
     }
     Ok(())
