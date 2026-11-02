@@ -325,6 +325,198 @@ pub struct HpsiVqLayout {
     pub codebook_count: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HpsiIndexBlock {
+    block_id: u32,
+    first_row: usize,
+    end_row: usize,
+}
+
+/// Prepared executor for repeated row-window operations over an HPSI VQ tensor pair.
+///
+/// The shared codebook and index-block row map are loaded/validated once. Each
+/// call reads only selector payload blocks intersecting the requested rows,
+/// then computes only the requested rows within those blocks.
+pub struct HpsiVqExecutor<'a> {
+    reader: &'a ModelReader,
+    layout: HpsiVqLayout,
+    codebook: Vec<f32>,
+    bytes_per_row: usize,
+    index_blocks: Vec<HpsiIndexBlock>,
+}
+
+impl<'a> HpsiVqExecutor<'a> {
+    pub fn new(reader: &'a ModelReader, layout: HpsiVqLayout) -> Result<Self, VqError> {
+        let HpsiVqLayout {
+            codebook_tensor_id,
+            indices_tensor_id,
+            rows,
+            cols,
+            codebook_count,
+        } = layout;
+        if rows == 0 || cols == 0 || cols % 16 != 0 || !(1..=4).contains(&codebook_count) {
+            return Err(VqError("HPSI VQ layout has invalid shape or codebook count"));
+        }
+
+        let codebook_tensor = reader
+            .tensor(codebook_tensor_id)
+            .map_err(|_| VqError("could not locate HPSI codebook tensor"))?;
+        let expected_codebook_bytes = CODEBOOK_VALUES * codebook_count * 4;
+        if codebook_tensor.dtype != DType::F32
+            || codebook_tensor.rank != 3
+            || codebook_tensor.dimensions[0] != codebook_count as u64
+            || codebook_tensor.dimensions[1] != CODEBOOK_SIZE as u64
+            || codebook_tensor.dimensions[2] != GROUP_SIZE as u64
+            || codebook_tensor.logical_nbytes != expected_codebook_bytes as u64
+        {
+            return Err(VqError("HPSI codebook tensor descriptor does not match VQ layout"));
+        }
+
+        let mut codebook_bytes = Vec::with_capacity(expected_codebook_bytes);
+        for block_id in 0..codebook_tensor.block_count {
+            let block = reader
+                .read_block(codebook_tensor_id, block_id)
+                .map_err(|_| VqError("failed to read HPSI codebook block"))?;
+            codebook_bytes.extend_from_slice(&block.payload);
+        }
+        if codebook_bytes.len() != expected_codebook_bytes {
+            return Err(VqError("HPSI codebook payload length is invalid"));
+        }
+        let codebook: Vec<f32> = codebook_bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("four-byte chunk")))
+            .collect();
+        if codebook.iter().any(|value| !value.is_finite()) {
+            return Err(VqError("HPSI codebook contains non-finite values"));
+        }
+
+        let groups_per_row = cols / GROUP_SIZE;
+        let selectors_per_row = groups_per_row
+            .checked_mul(codebook_count)
+            .ok_or(VqError("selector count per row overflow"))?;
+        let bytes_per_row = selectors_per_row / 2;
+        let expected_index_bytes = rows
+            .checked_mul(bytes_per_row)
+            .ok_or(VqError("HPSI index tensor size overflow"))?;
+        let index_tensor = reader
+            .tensor(indices_tensor_id)
+            .map_err(|_| VqError("could not locate HPSI index tensor"))?;
+        if index_tensor.dtype != DType::Opaque
+            || index_tensor.rank != 1
+            || index_tensor.dimensions[0] != expected_index_bytes as u64
+            || index_tensor.logical_nbytes != expected_index_bytes as u64
+        {
+            return Err(VqError("HPSI index tensor descriptor does not match VQ layout"));
+        }
+
+        let mut index_blocks = Vec::with_capacity(index_tensor.block_count as usize);
+        let mut next_row = 0usize;
+        for block_id in 0..index_tensor.block_count {
+            let descriptor = reader
+                .block(indices_tensor_id, block_id)
+                .map_err(|_| VqError("invalid HPSI index block descriptor"))?;
+            let logical_offset = usize::try_from(descriptor.logical_offset)
+                .map_err(|_| VqError("HPSI index block offset exceeds address space"))?;
+            let logical_length = usize::try_from(descriptor.logical_length)
+                .map_err(|_| VqError("HPSI index block length exceeds address space"))?;
+            if logical_offset % bytes_per_row != 0
+                || logical_length == 0
+                || logical_length % bytes_per_row != 0
+            {
+                return Err(VqError("HPSI index block is not row-aligned"));
+            }
+            let first_row = logical_offset / bytes_per_row;
+            let block_rows = logical_length / bytes_per_row;
+            let end_row = first_row
+                .checked_add(block_rows)
+                .ok_or(VqError("HPSI index block row range overflow"))?;
+            if first_row != next_row || end_row > rows {
+                return Err(VqError("HPSI index blocks are not a contiguous row partition"));
+            }
+            index_blocks.push(HpsiIndexBlock {
+                block_id,
+                first_row,
+                end_row,
+            });
+            next_row = end_row;
+        }
+        if next_row != rows {
+            return Err(VqError("HPSI index blocks do not cover all matrix rows"));
+        }
+
+        Ok(Self {
+            reader,
+            layout,
+            codebook,
+            bytes_per_row,
+            index_blocks,
+        })
+    }
+
+    /// Compute a contiguous output-row window without materializing dense weights.
+    pub fn matvec_rows(
+        &self,
+        input: &[f32],
+        first_row: usize,
+        output: &mut [f32],
+    ) -> Result<(), VqError> {
+        if output.is_empty()
+            || input.len() != self.layout.cols
+            || first_row
+                .checked_add(output.len())
+                .is_none_or(|end| end > self.layout.rows)
+        {
+            return Err(VqError("requested HPSI matvec row range or input shape is invalid"));
+        }
+
+        let requested_end = first_row + output.len();
+        let mut written_rows = 0usize;
+        for descriptor in &self.index_blocks {
+            if descriptor.end_row <= first_row || descriptor.first_row >= requested_end {
+                continue;
+            }
+
+            let payload = self
+                .reader
+                .read_block(self.layout.indices_tensor_id, descriptor.block_id)
+                .map_err(|_| VqError("failed to read selected HPSI index block"))?;
+            let copy_start = descriptor.first_row.max(first_row);
+            let copy_end = descriptor.end_row.min(requested_end);
+            let source_row_start = copy_start - descriptor.first_row;
+            let selected_rows = copy_end - copy_start;
+            let byte_start = source_row_start
+                .checked_mul(self.bytes_per_row)
+                .ok_or(VqError("selected HPSI index offset overflow"))?;
+            let byte_len = selected_rows
+                .checked_mul(self.bytes_per_row)
+                .ok_or(VqError("selected HPSI index length overflow"))?;
+            let selected_indices = payload
+                .payload
+                .get(byte_start..byte_start + byte_len)
+                .ok_or(VqError("selected HPSI index range exceeds block payload"))?;
+
+            let view = VqMatrixView::new(
+                selected_rows,
+                self.layout.cols,
+                self.layout.codebook_count,
+                &self.codebook,
+                selected_indices,
+            )?;
+            let destination_start = copy_start - first_row;
+            let destination_end = destination_start + selected_rows;
+            view.matvec(input, &mut output[destination_start..destination_end])?;
+            written_rows += selected_rows;
+        }
+
+        if written_rows != output.len() {
+            return Err(VqError("HPSI index blocks do not cover the requested output rows"));
+        }
+        Ok(())
+    }
+}
+
+/// Convenience function for one-off row windows. For repeated calls, prepare
+/// an `HpsiVqExecutor` once so its codebook is not re-read for every window.
 pub fn matvec_hpsi_rows(
     reader: &ModelReader,
     layout: HpsiVqLayout,
@@ -332,138 +524,7 @@ pub fn matvec_hpsi_rows(
     first_row: usize,
     output: &mut [f32],
 ) -> Result<(), VqError> {
-    let HpsiVqLayout {
-        codebook_tensor_id,
-        indices_tensor_id,
-        rows,
-        cols,
-        codebook_count,
-    } = layout;
-    if output.is_empty()
-        || input.len() != cols
-        || first_row
-            .checked_add(output.len())
-            .is_none_or(|end| end > rows)
-    {
-        return Err(VqError(
-            "requested HPSI matvec row range or input shape is invalid",
-        ));
-    }
-    if cols % 16 != 0 || !(1..=4).contains(&codebook_count) {
-        return Err(VqError(
-            "HPSI row streaming requires aligned columns and one through four codebooks",
-        ));
-    }
-
-    let codebook_tensor = reader
-        .tensor(codebook_tensor_id)
-        .map_err(|_| VqError("could not locate HPSI codebook tensor"))?;
-    let expected_codebook_bytes = CODEBOOK_VALUES * codebook_count * 4;
-    if codebook_tensor.dtype != DType::F32
-        || codebook_tensor.rank != 3
-        || codebook_tensor.dimensions[0] != codebook_count as u64
-        || codebook_tensor.dimensions[1] != CODEBOOK_SIZE as u64
-        || codebook_tensor.dimensions[2] != GROUP_SIZE as u64
-        || codebook_tensor.logical_nbytes != expected_codebook_bytes as u64
-    {
-        return Err(VqError(
-            "HPSI codebook tensor descriptor does not match VQ layout",
-        ));
-    }
-
-    let mut codebook_bytes = Vec::with_capacity(expected_codebook_bytes);
-    for block_id in 0..codebook_tensor.block_count {
-        let block = reader
-            .read_block(codebook_tensor_id, block_id)
-            .map_err(|_| VqError("failed to read HPSI codebook block"))?;
-        codebook_bytes.extend_from_slice(&block.payload);
-    }
-    if codebook_bytes.len() != expected_codebook_bytes {
-        return Err(VqError("HPSI codebook payload length is invalid"));
-    }
-    let codebook: Vec<f32> = codebook_bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("four-byte chunk")))
-        .collect();
-
-    let groups_per_row = cols / GROUP_SIZE;
-    let selectors_per_row = groups_per_row
-        .checked_mul(codebook_count)
-        .ok_or(VqError("selector count per row overflow"))?;
-    let bytes_per_row = selectors_per_row / 2;
-    let expected_index_bytes = rows
-        .checked_mul(bytes_per_row)
-        .ok_or(VqError("HPSI index tensor size overflow"))?;
-    let index_tensor = reader
-        .tensor(indices_tensor_id)
-        .map_err(|_| VqError("could not locate HPSI index tensor"))?;
-    if index_tensor.dtype != DType::Opaque
-        || index_tensor.rank != 1
-        || index_tensor.dimensions[0] != expected_index_bytes as u64
-        || index_tensor.logical_nbytes != expected_index_bytes as u64
-    {
-        return Err(VqError(
-            "HPSI index tensor descriptor does not match VQ layout",
-        ));
-    }
-
-    let requested_end = first_row + output.len();
-    let mut written_rows = 0usize;
-    for block_id in 0..index_tensor.block_count {
-        let descriptor = reader
-            .block(indices_tensor_id, block_id)
-            .map_err(|_| VqError("invalid HPSI index block descriptor"))?;
-        let logical_offset = usize::try_from(descriptor.logical_offset)
-            .map_err(|_| VqError("HPSI index block offset exceeds address space"))?;
-        let logical_length = usize::try_from(descriptor.logical_length)
-            .map_err(|_| VqError("HPSI index block length exceeds address space"))?;
-        if logical_offset % bytes_per_row != 0
-            || logical_length == 0
-            || logical_length % bytes_per_row != 0
-        {
-            return Err(VqError("HPSI index block is not row-aligned"));
-        }
-        let block_first_row = logical_offset / bytes_per_row;
-        let block_rows = logical_length / bytes_per_row;
-        let block_end_row = block_first_row
-            .checked_add(block_rows)
-            .ok_or(VqError("HPSI index block row range overflow"))?;
-        if block_end_row > rows {
-            return Err(VqError("HPSI index block exceeds matrix row count"));
-        }
-        if block_end_row <= first_row || block_first_row >= requested_end {
-            continue;
-        }
-
-        let payload = reader
-            .read_block(indices_tensor_id, block_id)
-            .map_err(|_| VqError("failed to read selected HPSI index block"))?;
-        let view = VqMatrixView::new(
-            block_rows,
-            cols,
-            codebook_count,
-            &codebook,
-            &payload.payload,
-        )?;
-        let mut block_output = vec![0.0_f32; block_rows];
-        view.matvec(input, &mut block_output)?;
-
-        let copy_start = block_first_row.max(first_row);
-        let copy_end = block_end_row.min(requested_end);
-        let destination_start = copy_start - first_row;
-        let source_start = copy_start - block_first_row;
-        let copy_len = copy_end - copy_start;
-        output[destination_start..destination_start + copy_len]
-            .copy_from_slice(&block_output[source_start..source_start + copy_len]);
-        written_rows += copy_len;
-    }
-
-    if written_rows != output.len() {
-        return Err(VqError(
-            "HPSI index blocks do not cover the requested output rows",
-        ));
-    }
-    Ok(())
+    HpsiVqExecutor::new(reader, layout)?.matvec_rows(input, first_row, output)
 }
 
 fn fit_codebook(
