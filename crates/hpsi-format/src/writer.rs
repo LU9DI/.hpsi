@@ -902,7 +902,6 @@ impl ModelWriter {
             Ok(stats)
         })();
 
-        let _ = fs::remove_file(&temporary_path);
         result
     }
 }
@@ -1001,6 +1000,55 @@ mod streaming_writer_tests {
             dimensions: vec![1],
             blocks: vec![PayloadBlock { bytes: vec![42] }],
         }]
+    }
+
+    #[test]
+    fn buffered_and_streaming_path_writers_produce_equivalent_artifacts() {
+        let (buffered_directory, buffered_destination) =
+            test_output_path("buffered-streaming-parity-a");
+        let (streaming_directory, streaming_destination) =
+            test_output_path("buffered-streaming-parity-b");
+
+        let buffered_stats =
+            ModelWriter::write_path(&buffered_destination, &one_byte_buffered_tensor()).unwrap();
+        let streaming_stats = ModelWriter::write_path_streaming(
+            &streaming_destination,
+            &one_byte_streaming_tensor(),
+            |_, _, writer| {
+                writer.write_all(&[42]).map_err(ioerr)?;
+                Ok(1)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(buffered_stats, streaming_stats);
+
+        let buffered = ModelReader::open(
+            Arc::new(FileSource::open(&buffered_destination).unwrap()),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+        let streaming = ModelReader::open(
+            Arc::new(FileSource::open(&streaming_destination).unwrap()),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+
+        buffered.verify_all().unwrap();
+        streaming.verify_all().unwrap();
+        assert_eq!(buffered.metadata.value, streaming.metadata.value);
+        assert_eq!(buffered.metadata.tensor_names, streaming.metadata.tensor_names);
+        assert_eq!(buffered.header.tensor_count, streaming.header.tensor_count);
+        assert_eq!(buffered.header.block_count, streaming.header.block_count);
+        assert_eq!(
+            buffered.read_block(1, 0).unwrap().payload,
+            streaming.read_block(1, 0).unwrap().payload
+        );
+
+        std::fs::remove_file(&buffered_destination).unwrap();
+        std::fs::remove_file(&streaming_destination).unwrap();
+        std::fs::remove_dir(buffered_directory).unwrap();
+        std::fs::remove_dir(streaming_directory).unwrap();
     }
 
     #[test]
