@@ -193,10 +193,12 @@ impl VqMatrix {
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
         let bytes_per_row = selectors_per_row(cols, config.codebook_count)? / 2;
-        let packed_len = rows.checked_mul(bytes_per_row)
+        let packed_len = rows
+            .checked_mul(bytes_per_row)
             .ok_or(VqError("packed index count overflow"))?;
         let mut packed_indices = Vec::new();
-        packed_indices.try_reserve_exact(packed_len)
+        packed_indices
+            .try_reserve_exact(packed_len)
             .map_err(|_| VqError("could not allocate packed selector matrix"))?;
         let codebook = Self::encode_from_reader_to(
             rows,
@@ -364,10 +366,12 @@ impl VqMatrix {
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
     {
         let bytes_per_row = selectors_per_row(cols, config.codebook_count)? / 2;
-        let packed_len = rows.checked_mul(bytes_per_row)
+        let packed_len = rows
+            .checked_mul(bytes_per_row)
             .ok_or(VqError("packed index count overflow"))?;
         let mut packed_indices = Vec::new();
-        packed_indices.try_reserve_exact(packed_len)
+        packed_indices
+            .try_reserve_exact(packed_len)
             .map_err(|_| VqError("could not allocate packed selector matrix"))?;
         let codebook = Self::encode_from_reader_activation_aware_to(
             rows,
@@ -782,7 +786,8 @@ impl VqMatrix {
             .ok_or(VqError("packed index count overflow"))?
             / 2;
         let mut packed_indices = Vec::new();
-        packed_indices.try_reserve_exact(packed_len)
+        packed_indices
+            .try_reserve_exact(packed_len)
             .map_err(|_| VqError("could not allocate packed VQ indices"))?;
         packed_indices.resize(packed_len, 0_u8);
 
@@ -802,12 +807,14 @@ impl VqMatrix {
             }
         }
 
-        let codebook_len = config.codebook_count
+        let codebook_len = config
+            .codebook_count
             .checked_mul(CODEBOOK_SIZE)
             .and_then(|count| count.checked_mul(GROUP_SIZE))
             .ok_or(VqError("VQ codebook length overflow"))?;
         let mut codebook = Vec::new();
-        codebook.try_reserve_exact(codebook_len)
+        codebook
+            .try_reserve_exact(codebook_len)
             .map_err(|_| VqError("could not allocate flattened VQ codebook"))?;
         for book in codebooks {
             for mut centroid in book {
@@ -1277,7 +1284,8 @@ fn fit_codebook(
         return Err(VqError("cannot fit a codebook without training samples"));
     }
     let mut centroids = Vec::new();
-    centroids.try_reserve_exact(CODEBOOK_SIZE)
+    centroids
+        .try_reserve_exact(CODEBOOK_SIZE)
         .map_err(|_| VqError("could not allocate VQ centroids"))?;
     if reserve_zero_centroid {
         centroids.push([0.0; GROUP_SIZE]);
@@ -1304,7 +1312,8 @@ fn fit_codebook(
     }
 
     let mut nearest_distances = Vec::new();
-    nearest_distances.try_reserve_exact(samples.len())
+    nearest_distances
+        .try_reserve_exact(samples.len())
         .map_err(|_| VqError("could not allocate VQ nearest distances"))?;
     nearest_distances.resize(samples.len(), 0.0_f32);
     for _ in 0..iterations {
@@ -1337,7 +1346,8 @@ fn fit_codebook(
         // worst-represented samples so subsequent Lloyd iterations can use
         // those codewords instead of retaining duplicate/obsolete centers.
         let mut reseeded = Vec::new();
-        reseeded.try_reserve_exact(samples.len())
+        reseeded
+            .try_reserve_exact(samples.len())
             .map_err(|_| VqError("could not allocate VQ reseed markers"))?;
         reseeded.resize(samples.len(), false);
         for cluster in 0..CODEBOOK_SIZE {
@@ -1787,14 +1797,38 @@ mod resource_limit_tests {
     fn rejects_vq_configurations_outside_resource_limits() {
         let weights = [0.25_f32; GROUP_SIZE];
         let invalid_configs = [
-            VqConfig { iterations: 0, ..VqConfig::default() },
-            VqConfig { iterations: MAX_VQ_ITERATIONS + 1, ..VqConfig::default() },
-            VqConfig { sample_limit: 0, ..VqConfig::default() },
-            VqConfig { sample_limit: MAX_VQ_TRAINING_SAMPLES + 1, ..VqConfig::default() },
-            VqConfig { codebook_count: 0, ..VqConfig::default() },
-            VqConfig { codebook_count: 5, ..VqConfig::default() },
-            VqConfig { beam_width: 0, ..VqConfig::default() },
-            VqConfig { beam_width: 257, ..VqConfig::default() },
+            VqConfig {
+                iterations: 0,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                iterations: MAX_VQ_ITERATIONS + 1,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                sample_limit: 0,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                sample_limit: MAX_VQ_TRAINING_SAMPLES + 1,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                codebook_count: 0,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                codebook_count: 5,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                beam_width: 0,
+                ..VqConfig::default()
+            },
+            VqConfig {
+                beam_width: 257,
+                ..VqConfig::default()
+            },
         ];
 
         for config in invalid_configs {
