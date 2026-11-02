@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn rejects_gaps_and_trailing_payload_bytes() {
-        for (offsets, payload) in [("[0,1]", vec![7_u8, 8]), ("[0,1]", vec![7_u8, 8])] {
+        for (offsets, payload) in [("[1,2]", vec![7_u8, 8]), ("[0,1]", vec![7_u8, 8])] {
             let header = format!(r#"{{"w":{{"dtype":"U8","shape":[1],"data_offsets":{offsets}}}}}"#);
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
