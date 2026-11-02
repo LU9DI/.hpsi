@@ -132,8 +132,8 @@ impl VqMatrix {
             let mut vector = [0.0_f32; GROUP_SIZE];
             let start = group_index * GROUP_SIZE;
             vector.copy_from_slice(&weights[start..start + GROUP_SIZE]);
-            for (dimension, value) in vector.iter_mut().enumerate() {
-                *value *= dimension_scale[dimension];
+            for (value, scale) in vector.iter_mut().zip(dimension_scale) {
+                *value *= scale;
             }
             samples.push(vector);
         }
@@ -163,8 +163,8 @@ impl VqMatrix {
             let start = group_index * GROUP_SIZE;
             let mut residual = [0.0_f32; GROUP_SIZE];
             residual.copy_from_slice(&weights[start..start + GROUP_SIZE]);
-            for (dimension, value) in residual.iter_mut().enumerate() {
-                *value *= dimension_scale[dimension];
+            for (value, scale) in residual.iter_mut().zip(dimension_scale) {
+                *value *= scale;
             }
             let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
             for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
@@ -179,8 +179,8 @@ impl VqMatrix {
             .into_iter()
             .flat_map(|book| {
                 book.into_iter().flat_map(|mut centroid| {
-                    for (dimension, value) in centroid.iter_mut().enumerate() {
-                        *value /= dimension_scale[dimension];
+                    for (value, scale) in centroid.iter_mut().zip(dimension_scale) {
+                        *value /= scale;
                     }
                     centroid
                 })
