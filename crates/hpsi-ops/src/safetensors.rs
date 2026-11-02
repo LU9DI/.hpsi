@@ -1,6 +1,105 @@
 use crate::{VqConfig, VqError, VqMatrix};
 use hpsi_format::{RandomAccessSource, WriterStats};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use std::collections::HashSet;
+use std::fmt;
+
+struct NoDuplicateJson;
+
+impl<'de> Deserialize<'de> for NoDuplicateJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct JsonVisitor;
+
+        impl<'de> Visitor<'de> for JsonVisitor {
+            type Value = NoDuplicateJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value without duplicate object keys")
+            }
+
+            fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_string<E>(self, _value: String) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                NoDuplicateJson::deserialize(deserializer)
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                while sequence.next_element::<NoDuplicateJson>()?.is_some() {}
+                Ok(NoDuplicateJson)
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut keys = HashSet::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    keys.try_reserve(1).map_err(de::Error::custom)?;
+                    if !keys.insert(key) {
+                        return Err(de::Error::custom("duplicate JSON object key"));
+                    }
+                    map.next_value::<NoDuplicateJson>()?;
+                }
+                Ok(NoDuplicateJson)
+            }
+        }
+
+        deserializer.deserialize_any(JsonVisitor)
+    }
+}
+
+fn reject_duplicate_json_keys(bytes: &[u8]) -> Result<(), SafeTensorError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    NoDuplicateJson::deserialize(&mut deserializer)
+        .map_err(|_| SafeTensorError::InvalidHeader)?;
+    deserializer
+        .end()
+        .map_err(|_| SafeTensorError::InvalidHeader)
+}
 use std::io::{Seek, Write};
 use std::sync::Arc;
 
@@ -77,6 +176,7 @@ impl SafeTensorFile {
         source
             .read_exact_at(8, &mut bytes)
             .map_err(|_| SafeTensorError::Io)?;
+        reject_duplicate_json_keys(&bytes)?;
         let root: Value =
             serde_json::from_slice(&bytes).map_err(|_| SafeTensorError::InvalidHeader)?;
         let object = root.as_object().ok_or(SafeTensorError::InvalidHeader)?;
@@ -424,6 +524,27 @@ fn f16_to_f32(bits: u16) -> f32 {
 mod tests {
     use super::*;
     use hpsi_format::MemorySource;
+    #[test]
+    fn rejects_duplicate_json_keys_at_every_object_depth() {
+        for header in [
+            r#"{"weight":{"dtype":"U8","shape":[1],"data_offsets":[0,1]},"weight":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}"#,
+            r#"{"weight":{"dtype":"U8","dtype":"I8","shape":[1],"data_offsets":[0,1]}}"#,
+            r#"{"__metadata__":{"format":"one","format":"two"}}"#,
+            r#"{"weight":{"dtype":"U8","shape":[1],"data_offsets":[0,1]},"we\u0069ght":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}"#,
+        ] {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            assert!(matches!(
+                SafeTensorFile::open(
+                    Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+                    4096,
+                ),
+                Err(SafeTensorError::InvalidHeader)
+            ));
+        }
+    }
+
     #[test]
     fn accepts_string_metadata_and_rejects_non_object_or_non_string_values() {
         for header in [
