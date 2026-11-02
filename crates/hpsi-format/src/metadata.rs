@@ -157,12 +157,19 @@ mod resource_limit_tests {
 
     #[test]
     fn rejects_metadata_with_excessive_total_json_nodes() {
-        let values: Vec<u32> = (0..401).collect();
+        let values: Vec<u32> = (0..900).collect();
+        let groups = vec![
+            values.clone(),
+            values.clone(),
+            values.clone(),
+            values.clone(),
+            values,
+        ];
         let bytes = serde_json::to_vec(&serde_json::json!({
             "format": "hpsi",
             "metadata_version": 1,
             "tensor_names": [],
-            "producer": { "values": values }
+            "producer": { "groups": groups }
         }))
         .unwrap();
         let limits = ReaderLimits {
