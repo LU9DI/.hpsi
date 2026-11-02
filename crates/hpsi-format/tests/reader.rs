@@ -103,6 +103,38 @@ fn parser_preserves_unknown_block_codec_without_assuming_raw_lengths() {
 }
 
 #[test]
+fn rejects_self_referential_representation_tensor() {
+    let mut bytes = fixture();
+    bytes[200 + 104..200 + 112].copy_from_slice(&7_u64.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
+fn rejects_self_referential_auxiliary_tensor() {
+    let mut bytes = fixture();
+    bytes[328 + 48..328 + 56].copy_from_slice(&7_u64.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
+fn rejects_missing_auxiliary_tensor_reference() {
+    let mut bytes = fixture();
+    bytes[328 + 48..328 + 56].copy_from_slice(&999_u64.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
+fn rejects_auxiliary_tensor_reference_outside_u32_id_space() {
+    let mut bytes = fixture();
+    bytes[328 + 48..328 + 56].copy_from_slice(&(u64::from(u32::MAX) + 1).to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
 fn rejects_unknown_tensor_id() {
     let source = Arc::new(MemorySource::new(fixture()));
     let reader = ModelReader::open(source, &ReaderLimits::default()).unwrap();
