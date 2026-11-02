@@ -111,36 +111,68 @@ fn write_hpsi_artifact(matrix: &VqMatrix) -> WriterStats {
 fn main() {
     let weights = make_weights();
     let encode_start = Instant::now();
-    let matrix = VqMatrix::encode(&weights, ROWS, COLS, VqConfig::default())
+    let matrix4 = VqMatrix::encode(&weights, ROWS, COLS, VqConfig::default())
         .expect("valid synthetic matrix");
-    let encode_ms = encode_start.elapsed().as_secs_f64() * 1_000.0;
+    let encode4_ms = encode_start.elapsed().as_secs_f64() * 1_000.0;
 
-    let artifact_stats = write_hpsi_artifact(&matrix);
-    let quality = evaluate_quality(&weights, &matrix);
+    let encode_additive_start = Instant::now();
+    let matrix8 = VqMatrix::encode(
+        &weights,
+        ROWS,
+        COLS,
+        VqConfig {
+            codebook_count: 2,
+            ..VqConfig::default()
+        },
+    )
+    .expect("valid additive synthetic matrix");
+    let encode8_ms = encode_additive_start.elapsed().as_secs_f64() * 1_000.0;
+
+    let artifact4 = write_hpsi_artifact(&matrix4);
+    let artifact8 = write_hpsi_artifact(&matrix8);
+    let quality4 = evaluate_quality(&weights, &matrix4);
+    let quality8 = evaluate_quality(&weights, &matrix8);
     let input = make_input(0x4245_4e43_484d_4152);
     let dense_latency = measure_dense(&weights, &input);
-    let vq_latency = measure_vq(&matrix, &input);
+    let vq4_latency = measure_vq(&matrix4, &input);
+    let vq8_latency = measure_vq(&matrix8, &input);
 
     println!("HPSI direct VQ matvec — deterministic synthetic baseline");
     println!("matrix_shape: {ROWS}x{COLS}");
-    println!("codebook_shape: 16x8 F32");
-    println!("selector_bits_per_group: 4");
     println!("group_size: 8");
-    println!("encode_ms: {encode_ms:.3}");
-    println!("dense_f32_bytes: {}", matrix.dense_f32_bytes());
-    println!("vq_representation_bytes: {}", matrix.stored_bytes());
-    println!("hpsi_artifact_bytes: {}", artifact_stats.total_bytes);
-    println!(
-        "artifact_compression_vs_dense_f32: {:.2}x",
-        matrix.dense_f32_bytes() as f64 / artifact_stats.total_bytes as f64
-    );
-    println!("heldout_relative_l2_error: {:.6}", quality.0);
-    println!("heldout_max_absolute_error: {:.6}", quality.1);
+    println!("dense_f32_bytes: {}", matrix4.dense_f32_bytes());
     println!("dense_matvec_p50_ms: {:.6}", dense_latency.0);
     println!("dense_matvec_p95_ms: {:.6}", dense_latency.1);
-    println!("vq_direct_matvec_p50_ms: {:.6}", vq_latency.0);
-    println!("vq_direct_matvec_p95_ms: {:.6}", vq_latency.1);
-    println!("checksum_guard: {:.6}", dense_latency.2 + vq_latency.2);
+
+    println!("single_codebook_count: 1");
+    println!("single_selector_bits_per_group: 4");
+    println!("single_encode_ms: {encode4_ms:.3}");
+    println!("single_representation_bytes: {}", matrix4.stored_bytes());
+    println!("single_hpsi_artifact_bytes: {}", artifact4.total_bytes);
+    println!(
+        "single_artifact_compression_vs_dense_f32: {:.2}x",
+        matrix4.dense_f32_bytes() as f64 / artifact4.total_bytes as f64
+    );
+    println!("single_heldout_relative_l2_error: {:.6}", quality4.0);
+    println!("single_heldout_max_absolute_error: {:.6}", quality4.1);
+    println!("single_direct_matvec_p50_ms: {:.6}", vq4_latency.0);
+    println!("single_direct_matvec_p95_ms: {:.6}", vq4_latency.1);
+
+    println!("additive_codebook_count: 2");
+    println!("additive_selector_bits_per_group: 8");
+    println!("additive_encode_ms: {encode8_ms:.3}");
+    println!("additive_representation_bytes: {}", matrix8.stored_bytes());
+    println!("additive_hpsi_artifact_bytes: {}", artifact8.total_bytes);
+    println!(
+        "additive_artifact_compression_vs_dense_f32: {:.2}x",
+        matrix8.dense_f32_bytes() as f64 / artifact8.total_bytes as f64
+    );
+    println!("additive_heldout_relative_l2_error: {:.6}", quality8.0);
+    println!("additive_heldout_max_absolute_error: {:.6}", quality8.1);
+    println!("additive_direct_matvec_p50_ms: {:.6}", vq8_latency.0);
+    println!("additive_direct_matvec_p95_ms: {:.6}", vq8_latency.1);
+
+    println!("checksum_guard: {:.6}", dense_latency.2 + vq4_latency.2 + vq8_latency.2);
     println!("latency_samples_per_path: {LATENCY_REPETITIONS}");
     println!("heldout_input_vectors: {QUALITY_SAMPLES}");
 }

@@ -7,8 +7,8 @@ The container reader and RAW writer establish selective access to HPSI blocks, b
 ## Chosen experimental representation
 
 - Matrix weights are grouped into vectors of eight adjacent F32 values.
-- A shared codebook contains 16 vectors of eight F32 values.
-- Each weight group is represented by one 4-bit codebook selector; two selectors are packed per byte.
+- A shared codebook contains 16 vectors of eight F32 values. An additive mode uses a second residual codebook of the same shape, with a fixed zero centroid so its weight-domain reconstruction error cannot exceed the single-codebook residual error.
+- Single-codebook mode uses one 4-bit selector per group (two selectors per byte). Additive mode uses two 4-bit selectors per group (one byte per group), selecting a primary centroid and a residual centroid.
 - The codebook is fitted deterministically with bounded-sample k-means.
 - The primary operation is y = W_hat x, where each output accumulates dot products between an input group and the selected codebook vector.
 - Runtime multiplication reads packed selectors and codebook values directly. It must not allocate or reconstruct a dense W_hat.
@@ -18,7 +18,7 @@ This is a research baseline, not a quality guarantee. The theoretical selector c
 ## HPSI representation
 
 The initial exporter emits two tensors:
-1. hpsi.vq.codebook: F32 tensor with shape [16, 8].
+1. hpsi.vq.codebook: F32 tensor with shape [codebook_count, 16, 8], where codebook_count is one or two.
 2. hpsi.vq.indices: Opaque byte tensor containing packed 4-bit selectors.
 
 Both tensors are stored through the existing HPSI writer and can be loaded with selective block reads. The first implementation keeps the selected codebook and packed index stream in memory for a matrix-vector call; row-streamed execution is a later optimization.
@@ -27,7 +27,7 @@ Both tensors are stored through the existing HPSI writer and can be loaded with 
 
 - Encoding rejects invalid shapes, non-finite values, and invalid training configuration.
 - Packed indices are deterministic and have a documented nibble order.
-- VqMatrixView::matvec computes directly from selectors and codebook values.
+- VqMatrixView::matvec computes directly from single or additive selectors and codebook values.
 - HPSI export and readback reproduce the same direct result as the in-memory representation.
 - Tests report complete representation bytes, not just index bytes.
 - Numerical quality is evaluated against dense F32 on held-out input vectors before any quality claims are made.
