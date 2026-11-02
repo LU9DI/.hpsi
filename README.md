@@ -563,7 +563,7 @@ The first implementation slice is now specified on branch `feat/hpsi-core-contai
 - [Implementation task checklist](specs/001-hpsi-core-container/tasks.md)
 - [HPSI binary format v0.1 draft](docs/format-v0.1.md)
 
-**Important:** these are design and acceptance artifacts, not a claim that the reader, writer, CLI, or codecs have already been implemented. Feature 001 deliberately isolates container correctness and safe random access from compression algorithms and inference kernels.
+**Important:** the specifications define acceptance criteria; the reader, RAW writer, CLI, and first adversarial tests are implemented and CI-validated. Feature 001 isolates container correctness and safe random access from compression algorithms and inference kernels.
 
 
 ## Implementation status — Feature 001
@@ -573,16 +573,19 @@ The Rust workspace on `feat/hpsi-core-container` now contains a first end-to-end
 - Rust workspace pinned to 1.85.0 / edition 2024.
 - `hpsi-format`: bounded metadata parsing, typed tensor/block/integrity descriptors, header and region validation, and file/memory random-access sources.
 - `ModelReader`: directory validation without payload reads, exact single-block reads, and bounded-buffer CRC32C verification.
-- `ModelWriter`: initial HPSI v0.1 RAW writer with independently addressable blocks, tensor/block directories, and CRC32C records for metadata and every payload block.
+- `ModelWriter`: HPSI v0.1 RAW writer with independently addressable blocks, tensor/block directories, and CRC32C records for metadata and every payload block.
+- `ModelWriter::write_path`: creates a unique sibling temporary file, syncs it, reopens and verifies it, then publishes without overwriting an existing destination.
+- `hpsi-format` tests include actual read-range recording, truncation, top-level and payload overlap, payload/metadata checksum corruption, and writer failure-preservation cases.
 - Writer round-trip tests reopen the generated artifact with `ModelReader` and verify all generated integrity records.
 - `hpsi inspect <file>` and `hpsi verify <file>` CLI commands.
-- GitHub Actions matrix configured for Windows, Ubuntu, and macOS.
+- `fuzz/`: libFuzzer targets for header parsing and full reader opening, with a nightly compile smoke job and a manual sustained-fuzz workflow.
+- GitHub Actions matrix for Windows, Ubuntu, and macOS, plus nightly fuzz-target compilation.
 
 **Writer scope and limitations:** the low-level writer accepts an empty `Write + Seek` stream and currently emits RAW blocks only. The path-based API creates a unique sibling temporary file with `create_new`, writes and syncs it, reopens it with the reference reader, verifies all CRC32C records, and publishes it using a same-directory hard link. It never overwrites an existing destination; hard-link support is required on the destination filesystem. Directory synchronization is best-effort on Unix. The caller currently supplies block payload bytes in memory, and compressed codecs are not implemented.
 
-**Validation status:** the reader, RAW writer, verified path-publishing API, and CLI changes have passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy with warnings denied, and workspace tests.
+**Validation status:** the reader, RAW writer, verified path-publishing API, CLI, and direct VQ operator have passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy with warnings denied, and workspace tests. The two libFuzzer targets also compile successfully in the nightly fuzz-smoke job.
 
-**Still outstanding:** fuzz targets and sustained fuzzing, additional resource-limit/allocation edge cases, and all compression/direct-compute kernels. The current writer is intentionally RAW-only and does not make a compression-ratio claim.
+**Still outstanding:** sustained fuzz runs, additional resource-limit/allocation edge cases, held-out VQ quality evaluation, reproducible CPU benchmarks, row-streamed execution, residual/additive quantization, and GPU kernels. The container writer is intentionally RAW-only; the VQ representation is a separate experimental compute layer and makes no production-quality claim.
 
 
 ### Feature 001 — reader implementation update
@@ -598,9 +601,23 @@ The initial reader implementation now includes:
 - streaming CRC32C verification with a fixed 64 KiB working buffer;
 - read statistics and integration fixtures proving that open performs zero payload reads.
 
-The latest CI run for the initial Rust foundation passed on Windows, macOS, and Ubuntu. The expanded directory-reader implementation has now passed the Windows, macOS, and Ubuntu CI matrix for formatting, Clippy, and tests. Feature 001 remains in progress because writer, CLI commands, fuzzing, and broader adversarial coverage are still missing.
+The initial Rust foundation, expanded directory reader, RAW writer, verified path publisher, CLI, and adversarial tests have passed the Windows, macOS, and Ubuntu CI matrix. Feature 001 remains in progress because sustained fuzzing, additional resource-limit edge cases, and final release-gate evidence are still outstanding.
 
 
 ## Fuzzing targets
 
-An isolated `fuzz/` package now contains libFuzzer targets for the header parser and complete `ModelReader::open` path (including CRC verification after a successful open). See [fuzz/README.md](fuzz/README.md) for the nightly `cargo-fuzz` commands. The targets are scaffolding only: a sustained fuzz run has not yet been performed, and no fuzz-coverage claim is made.
+An isolated `fuzz/` package contains libFuzzer targets for the header parser and complete `ModelReader::open` path (including CRC verification after a successful open). The targets compile in CI, and the repository provides a manual GitHub Actions workflow for sustained runs. No sustained fuzz run has been completed yet, so no fuzz-coverage claim is made. See [fuzz/README.md](fuzz/README.md).
+
+
+## Feature 002 — direct vector-quantized matvec (experimental)
+
+The new `hpsi-ops` crate contains the first compute primitive over a compressed representation:
+
+- Groups of eight adjacent F32 weights are represented by a 4-bit selector into a shared 16-entry codebook.
+- Two selectors are packed into each byte; the codebook is stored once as a 16 × 8 F32 tensor.
+- `VqMatrixView::matvec` computes directly from packed selectors and codebook values. It does not reconstruct a dense weight matrix.
+- `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; an integration test reads those blocks back and runs the same operation.
+
+The selector stream has a theoretical cost of 0.5 bits per weight before codebook and container overhead. That is a storage property of this experimental representation, **not** evidence of acceptable model quality. Held-out numerical evaluation, end-to-end artifact accounting, and reproducible latency benchmarks are still required before comparing it with dense or established quantized runtimes.
+
+See [Feature 002 specification](specs/002-direct-vq-matvec/spec.md), [plan](specs/002-direct-vq-matvec/plan.md), and [tasks](specs/002-direct-vq-matvec/tasks.md).
