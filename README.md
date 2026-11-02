@@ -568,17 +568,21 @@ The first implementation slice is now specified on branch `feat/hpsi-core-contai
 
 ## Implementation status — Feature 001
 
-The first Rust workspace and format primitives now exist on `feat/hpsi-core-container`:
+The Rust workspace on `feat/hpsi-core-container` now contains a first end-to-end container path:
 
 - Rust workspace pinned to 1.85.0 / edition 2024.
-- `hpsi-format`: typed format errors, configurable initial reader limits, fixed 128-byte header parser, checked top-level region arithmetic, and random-access source abstraction for files and memory.
-- Initial unit/integration tests for header validation and memory-source range reads.
-- `hpsi` CLI package shell (the `inspect` and `verify` commands are not implemented yet).
-- GitHub Actions matrix for Windows, Ubuntu, and macOS running formatting, Clippy, and tests.
+- `hpsi-format`: bounded metadata parsing, typed tensor/block/integrity descriptors, header and region validation, and file/memory random-access sources.
+- `ModelReader`: directory validation without payload reads, exact single-block reads, and bounded-buffer CRC32C verification.
+- `ModelWriter`: initial HPSI v0.1 RAW writer with independently addressable blocks, tensor/block directories, and CRC32C records for metadata and every payload block.
+- Writer round-trip tests reopen the generated artifact with `ModelReader` and verify all generated integrity records.
+- `hpsi inspect <file>` and `hpsi verify <file>` CLI commands.
+- GitHub Actions matrix configured for Windows, Ubuntu, and macOS.
 
-**Validation status:** the first CI attempts correctly caught formatting differences. Those formatting changes have been applied; the latest branch revision still requires a completed CI run. No passing result is claimed yet.
+**Writer scope and limitations:** this is an initial low-level writer over an empty `Write + Seek` stream. It currently emits RAW blocks only; it is not yet an atomic path-based writer, does not preserve an existing destination on failure, and does not implement compressed codecs. The caller currently supplies block payload bytes in memory.
 
-**Not implemented yet:** metadata parsing, tensor/block directory parsing, full ModelReader, writer, CRC32C, CLI commands, fuzzing, and any compression or direct-compute kernel.
+**Validation status:** the earlier reader revision passed the Windows, macOS, and Ubuntu CI matrix. The writer and CLI changes are newer and must pass a fresh CI run before being considered validated.
+
+**Still outstanding:** atomic temporary-file output and durability guarantees, full CLI shape/codec/size reporting, source-level read-range instrumentation, broader malformed/truncated/corruption tests, fuzzing, and all compression/direct-compute kernels.
 
 
 ### Feature 001 — reader implementation update
