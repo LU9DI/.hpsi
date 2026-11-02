@@ -27,6 +27,11 @@ def safe_name(value: str) -> str:
     return cleaned[:120] or "unnamed"
 
 
+def source_tensor_name(module_name: str) -> str:
+    """Map a Linear module path to its conventional Safetensors weight key."""
+    return f"{module_name}.weight" if module_name else "weight"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, type=Path, help="Local Hugging Face model directory")
@@ -73,7 +78,8 @@ def main() -> int:
     accumulators: dict[str, dict[str, Any]] = {}
     handles = []
 
-    def make_hook(layer_name: str):
+    def make_hook(module_name: str):
+        layer_name = source_tensor_name(module_name)
         def capture(_module: Any, inputs: tuple[Any, ...]) -> None:
             if not inputs or not isinstance(inputs[0], torch.Tensor):
                 return
@@ -183,7 +189,8 @@ def main() -> int:
         destination = args.output_dir / filename
         destination.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
         manifest_layers.append({
-            "layer_name": layer_name,
+            "module_name": layer_name.removesuffix(".weight") if layer_name.endswith(".weight") else "",
+            "source_tensor_name": layer_name,
             "file": filename,
             "sample_count": count,
             "features": len(moments),
