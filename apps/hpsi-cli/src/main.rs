@@ -1,4 +1,5 @@
-use hpsi_format::{FileSource, ModelReader, ReaderLimits};
+use hpsi_format::{DType, FileSource, ModelReader, ReaderLimits};
+use serde_json::json;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -19,9 +20,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let Some(path) = args.get(1) else {
         return Err(usage());
     };
-    if args.len() != 2 {
-        return Err(usage());
-    }
+    let tensor_id = match command {
+        "inspect" | "verify" if args.len() == 2 => None,
+        "calibrate" if args.len() == 3 => Some(
+            args[2]
+                .parse::<u32>()
+                .map_err(|_| "tensor-id must be an unsigned 32-bit integer".to_owned())?,
+        ),
+        _ => return Err(usage()),
+    };
+
     let source = Arc::new(FileSource::open(path).map_err(|e| e.to_string())?);
     let reader = ModelReader::open(source, &ReaderLimits::default()).map_err(|e| e.to_string())?;
 
@@ -81,10 +89,102 @@ fn run(args: Vec<String>) -> Result<(), String> {
             println!("read_operations: {}", stats.read_operations);
             Ok(())
         }
+        "calibrate" => calibrate_activations(&reader, tensor_id.expect("validated command")),
         _ => Err(usage()),
     }
 }
 
+/// Compute diagonal activation second moments from a row-major F32 activation tensor.
+/// Payload blocks are consumed one at a time; no complete activation matrix is assembled.
+fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), String> {
+    let tensor = reader.tensor(tensor_id).map_err(|e| e.to_string())?;
+    if tensor.dtype != DType::F32 || tensor.rank != 2 || tensor.codec != 1 {
+        return Err("calibration requires a rank-2 F32 tensor using the RAW codec".to_owned());
+    }
+    let rows = tensor.dimensions[0];
+    let cols = tensor.dimensions[1];
+    let cols_usize = usize::try_from(cols).map_err(|_| "column count exceeds address space")?;
+    let expected_values = rows
+        .checked_mul(cols)
+        .ok_or_else(|| "activation element count overflow".to_owned())?;
+    let mut sum_squares = Vec::new();
+    sum_squares
+        .try_reserve_exact(cols_usize)
+        .map_err(|_| "cannot allocate calibration accumulator".to_owned())?;
+    sum_squares.resize(cols_usize, 0.0_f64);
+
+    let mut expected_offset = 0_u64;
+    let mut value_count = 0_u64;
+    let mut pending = [0_u8; 4];
+    let mut pending_len = 0_usize;
+
+    for block_id in 0..tensor.block_count {
+        let descriptor = reader
+            .block(tensor_id, block_id)
+            .map_err(|e| e.to_string())?;
+        if descriptor.logical_offset != expected_offset
+            || descriptor.logical_length != descriptor.payload_length
+        {
+            return Err("activation blocks must be contiguous RAW payloads".to_owned());
+        }
+        let block = reader
+            .read_block(tensor_id, block_id)
+            .map_err(|e| e.to_string())?;
+        for byte in block.payload {
+            pending[pending_len] = byte;
+            pending_len += 1;
+            if pending_len == 4 {
+                let value = f32::from_le_bytes(pending);
+                if !value.is_finite() {
+                    return Err("activation tensor contains a non-finite F32 value".to_owned());
+                }
+                let column = usize::try_from(value_count % cols)
+                    .map_err(|_| "column index exceeds address space")?;
+                let value = f64::from(value);
+                sum_squares[column] += value * value;
+                value_count += 1;
+                pending_len = 0;
+            }
+        }
+        expected_offset = expected_offset
+            .checked_add(descriptor.logical_length)
+            .ok_or_else(|| "activation byte offset overflow".to_owned())?;
+    }
+
+    if pending_len != 0 || value_count != expected_values || expected_offset != tensor.logical_nbytes {
+        return Err("activation payload length does not match tensor shape".to_owned());
+    }
+    let sample_count = rows as f64;
+    let second_moment: Vec<f64> = sum_squares
+        .into_iter()
+        .map(|sum| sum / sample_count)
+        .collect();
+    let name = reader
+        .metadata
+        .tensor_names
+        .get(tensor.name_ref as usize)
+        .ok_or_else(|| "activation tensor has an invalid name reference".to_owned())?;
+    let stats = reader.stats();
+    let calibration = json!({
+        "format": "hpsi-activation-calibration",
+        "version": 1,
+        "source_tensor_id": tensor_id,
+        "source_tensor_name": name,
+        "shape": [rows, cols],
+        "sample_count": rows,
+        "statistic": "diagonal_second_moment",
+        "activation_second_moment": second_moment,
+        "source_payload_bytes_read": stats.payload_bytes_read,
+        "source_read_operations": stats.read_operations
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&calibration).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
 fn usage() -> String {
-    "usage: hpsi <inspect|verify> <model.hpsi>".to_owned()
+    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id>"
+        .to_owned()
 }
