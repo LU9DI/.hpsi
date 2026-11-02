@@ -497,8 +497,9 @@ fn validate_reference_cycles(
             edges[index].push(target);
         }
 
-        let start = usize::try_from(tensor.first_block_index)
-            .map_err(|_| FormatError::InvalidDirectory("reference block index exceeds address space"))?;
+        let start = usize::try_from(tensor.first_block_index).map_err(|_| {
+            FormatError::InvalidDirectory("reference block index exceeds address space")
+        })?;
         let end = start
             .checked_add(tensor.block_count as usize)
             .ok_or(FormatError::ArithmeticOverflow("reference block range"))?;
@@ -540,9 +541,9 @@ fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
             continue;
         }
         color[start] = 1;
-        stack
-            .try_reserve(1)
-            .map_err(|_| FormatError::LimitExceeded("reference traversal stack allocation failed"))?;
+        stack.try_reserve(1).map_err(|_| {
+            FormatError::LimitExceeded("reference traversal stack allocation failed")
+        })?;
         stack.push((start, 0));
 
         while let Some((node, next_edge)) = stack.last_mut() {
