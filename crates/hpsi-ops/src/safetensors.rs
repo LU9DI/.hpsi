@@ -246,7 +246,9 @@ impl SafeTensorFile {
     ) -> Result<Vec<f32>, SafeTensorError> {
         let count = usize::try_from(element_count).map_err(|_| SafeTensorError::Allocation)?;
         let mut values = Vec::new();
-        values.try_reserve_exact(count).map_err(|_| SafeTensorError::Allocation)?;
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| SafeTensorError::Allocation)?;
         values.resize(count, 0.0_f32);
         self.read_f32_elements_into(name, first_element, &mut values)?;
         Ok(values)
