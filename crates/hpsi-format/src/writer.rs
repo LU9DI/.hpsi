@@ -101,7 +101,10 @@ impl ModelWriter {
             serde_json::to_vec(&json!({"format":"hpsi","metadata_version":1,"tensor_names":names}))
                 .map_err(|e| FormatError::Io(e.to_string()))?;
         let metadata_off = 128u64;
-        let tensor_off = align8(metadata_off + metadata.len() as u64)?;
+        let metadata_end = metadata_off
+            .checked_add(metadata.len() as u64)
+            .ok_or(FormatError::ArithmeticOverflow("metadata end"))?;
+        let tensor_off = align8(metadata_end)?;
         let tensor_len = u64::try_from(tensors.len())
             .map_err(|_| FormatError::LimitExceeded("tensor directory length"))?
             .checked_mul(128)

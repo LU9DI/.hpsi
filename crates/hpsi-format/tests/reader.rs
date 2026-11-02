@@ -131,3 +131,28 @@ fn open_and_selective_read_touch_only_the_requested_payload_range() {
     reader.read_block(7, 0).unwrap();
     assert_eq!(*source.reads.lock().unwrap(), vec![(392, 4)]);
 }
+
+
+#[test]
+fn rejects_truncated_file() {
+    let mut bytes = fixture();
+    bytes.truncate(bytes.len() - 1);
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
+fn rejects_overlapping_top_level_regions() {
+    let mut bytes = fixture();
+    bytes[40..48].copy_from_slice(&128_u64.to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}
+
+#[test]
+fn rejects_payload_offset_overflow() {
+    let mut bytes = fixture();
+    bytes[328 + 32..328 + 40].copy_from_slice(&(u64::MAX - 1).to_le_bytes());
+    let source = Arc::new(MemorySource::new(bytes));
+    assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
+}

@@ -142,3 +142,57 @@ fn write_path_verifies_before_publish_and_never_overwrites() {
     assert_eq!(reader.verify_all().unwrap(), 2);
     std::fs::remove_file(path).unwrap();
 }
+
+
+#[test]
+fn rejects_overlapping_payload_blocks() {
+    let tensors = vec![TensorInput {
+        tensor_id: 1,
+        name: "overlap".into(),
+        dtype: DType::U8,
+        dimensions: vec![4],
+        blocks: vec![
+            PayloadBlock { bytes: vec![1, 2] },
+            PayloadBlock { bytes: vec![3, 4] },
+        ],
+    }];
+    let mut output = Cursor::new(Vec::new());
+    ModelWriter::write(&mut output, &tensors).unwrap();
+    let mut bytes = output.into_inner();
+    let block_directory = u64::from_le_bytes(bytes[56..64].try_into().unwrap()) as usize;
+    let first_payload_offset = bytes[block_directory + 32..block_directory + 40].to_vec();
+    bytes[block_directory + 64 + 32..block_directory + 64 + 40]
+        .copy_from_slice(&first_payload_offset);
+    let reader = ModelReader::open(
+        Arc::new(MemorySource::new(bytes)),
+        &ReaderLimits::default(),
+    );
+    assert!(reader.is_err());
+}
+
+#[test]
+fn verify_detects_metadata_corruption() {
+    let tensors = vec![TensorInput {
+        tensor_id: 1,
+        name: "checksum".into(),
+        dtype: DType::U8,
+        dimensions: vec![1],
+        blocks: vec![PayloadBlock { bytes: vec![9] }],
+    }];
+    let mut output = Cursor::new(Vec::new());
+    ModelWriter::write(&mut output, &tensors).unwrap();
+    let mut bytes = output.into_inner();
+    let name_offset = bytes
+        .windows(b"checksum".len())
+        .position(|window| window == b"checksum")
+        .unwrap();
+    bytes[name_offset] = b'C';
+    let reader = ModelReader::open(
+        Arc::new(MemorySource::new(bytes)),
+        &ReaderLimits::default(),
+    ).unwrap();
+    assert!(matches!(
+        reader.verify_all(),
+        Err(hpsi_format::FormatError::ChecksumMismatch)
+    ));
+}
