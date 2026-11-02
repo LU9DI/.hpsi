@@ -68,8 +68,14 @@ impl Metadata {
             tensor_names.push(name.to_owned());
         }
 
-        let mut pending = vec![(&value, 1_usize)];
+        let mut pending = Vec::new();
+        pending.try_reserve(1).map_err(|_| FormatError::LimitExceeded("JSON traversal allocation"))?;
+        pending.push((&value, 1_usize));
+        let max_nodes = limits.max_json_container_items.saturating_mul(4).max(1);
+        let mut visited_nodes = 0usize;
         while let Some((node, depth)) = pending.pop() {
+            visited_nodes = visited_nodes.checked_add(1).ok_or(FormatError::ArithmeticOverflow("JSON node count"))?;
+            if visited_nodes > max_nodes { return Err(FormatError::LimitExceeded("JSON total node count")); }
             if depth > limits.max_json_depth {
                 return Err(FormatError::LimitExceeded("JSON nesting depth"));
             }
@@ -78,12 +84,14 @@ impl Metadata {
                     if items.len() > limits.max_json_container_items {
                         return Err(FormatError::LimitExceeded("JSON array item count"));
                     }
+                    pending.try_reserve(items.len()).map_err(|_| FormatError::LimitExceeded("JSON traversal allocation"))?;
                     pending.extend(items.iter().map(|child| (child, depth + 1)));
                 }
                 Value::Object(items) => {
                     if items.len() > limits.max_json_container_items {
                         return Err(FormatError::LimitExceeded("JSON object member count"));
                     }
+                    pending.try_reserve(items.len()).map_err(|_| FormatError::LimitExceeded("JSON traversal allocation"))?;
                     pending.extend(items.values().map(|child| (child, depth + 1)));
                 }
                 Value::String(text) if text.len() > limits.max_json_string_bytes => {
