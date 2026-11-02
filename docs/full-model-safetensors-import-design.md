@@ -54,7 +54,7 @@ The path API creates temporary files with exclusive creation, verifies the compl
 
 Calibration is matched by exact source tensor name and feature count. Duplicate or unknown calibration names, invalid dimensions, non-finite or negative moments, and calibration for non-quantizable tensors are rejected. The calibration moments influence VQ encoding.
 
-The current import provenance records source tensor metadata and disposition, but does not yet persist the complete calibration provenance (such as dataset digest, model revision, and statistic version) in the output manifest. That remains a separate metadata enhancement and must not be implied by the presence of activation-aware encoding.
+The provenance-aware plan and writers persist a `calibration` object on each calibrated source-tensor entry in `metadata.user.source_tensors`. It contains `model_type`, optional `model_revision`, `dataset_sha256`, `sample_count`, `features`, and `statistic` (currently `diagonal_second_moment`). Calibration moments are intentionally not copied into the manifest: they are retained in the plan only as the numeric input to encoding. Raw-preserved tensors never receive a calibration object. The legacy writer APIs continue to omit this object, preserving their existing behavior.
 
 ## Validation coverage and remaining limits
 
