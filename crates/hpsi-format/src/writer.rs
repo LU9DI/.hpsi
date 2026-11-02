@@ -999,9 +999,10 @@ mod streaming_writer_tests {
         let result = ModelWriter::write_streaming(&mut output, &tensors, |_, _, _| {
             panic!("writer must reject the directory before invoking payload callbacks")
         });
-        assert!(matches!(result, Err(FormatError::LimitExceeded("writer block count"))));
+        assert!(matches!(
+            result,
+            Err(FormatError::LimitExceeded("writer block count"))
+        ));
         assert!(output.get_ref().is_empty());
     }
-
-
 }
