@@ -10,7 +10,9 @@ const QUALITY_SAMPLES: usize = 16;
 const LATENCY_REPETITIONS: usize = 100;
 
 fn next_value(state: &mut u64) -> f32 {
-    *state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
     let unit = ((*state >> 40) as u32) as f32 / ((1_u32 << 24) - 1) as f32;
     (unit * 2.0 - 1.0) * 0.1
 }
@@ -63,7 +65,8 @@ fn measure_vq(matrix: &VqMatrix, input: &[f32]) -> (f64, f64, f32) {
     let mut checksum = 0.0_f32;
     for _ in 0..LATENCY_REPETITIONS {
         let start = Instant::now();
-        view.matvec(input, &mut output).expect("valid VQ dimensions");
+        view.matvec(input, &mut output)
+            .expect("valid VQ dimensions");
         durations.push(start.elapsed());
         checksum += black_box(output[0]);
     }
@@ -83,7 +86,8 @@ fn evaluate_quality(weights: &[f32], matrix: &VqMatrix) -> (f64, f64) {
     for sample in 0..QUALITY_SAMPLES {
         let input = make_input(0x5155_414c_4954_5900_u64 + sample as u64);
         dense_matvec(weights, &input, &mut reference);
-        view.matvec(&input, &mut approximate).expect("valid VQ dimensions");
+        view.matvec(&input, &mut approximate)
+            .expect("valid VQ dimensions");
         for (expected, actual) in reference.iter().zip(&approximate) {
             let difference = expected - actual;
             error_squared += f64::from(difference) * f64::from(difference);
@@ -97,7 +101,9 @@ fn evaluate_quality(weights: &[f32], matrix: &VqMatrix) -> (f64, f64) {
 }
 
 fn write_hpsi_artifact(matrix: &VqMatrix) -> WriterStats {
-    let tensors = matrix.to_hpsi_tensors(10, 11, 64 * 1024).expect("valid tensor export");
+    let tensors = matrix
+        .to_hpsi_tensors(10, 11, 64 * 1024)
+        .expect("valid tensor export");
     let mut artifact = Cursor::new(Vec::new());
     ModelWriter::write(&mut artifact, &tensors).expect("valid HPSI export")
 }
@@ -124,7 +130,10 @@ fn main() {
     println!("dense_f32_bytes: {}", matrix.dense_f32_bytes());
     println!("vq_representation_bytes: {}", matrix.stored_bytes());
     println!("hpsi_artifact_bytes: {}", artifact_stats.total_bytes);
-    println!("artifact_compression_vs_dense_f32: {:.2}x", matrix.dense_f32_bytes() as f64 / artifact_stats.total_bytes as f64);
+    println!(
+        "artifact_compression_vs_dense_f32: {:.2}x",
+        matrix.dense_f32_bytes() as f64 / artifact_stats.total_bytes as f64
+    );
     println!("heldout_relative_l2_error: {:.6}", quality.0);
     println!("heldout_max_absolute_error: {:.6}", quality.1);
     println!("dense_matvec_p50_ms: {:.6}", dense_latency.0);
