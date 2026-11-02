@@ -91,7 +91,11 @@ mod tests {
     #[test]
     fn discovers_group_aligned_float_matrices_without_loading_payloads() {
         let tensors = vec![
-            info("model.layers.0.self_attn.q_proj.weight", "BF16", vec![64, 128]),
+            info(
+                "model.layers.0.self_attn.q_proj.weight",
+                "BF16",
+                vec![64, 128],
+            ),
             info("model.layers.0.norm.weight", "F32", vec![128]),
             info("model.layers.0.mlp.custom.weight", "F16", vec![32, 24]),
             info("model.layers.0.mlp.bad.weight", "F32", vec![32, 7]),
