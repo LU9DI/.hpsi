@@ -93,11 +93,7 @@ impl SafeTensorFile {
                 .try_reserve_exact(shape_values.len())
                 .map_err(|_| SafeTensorError::Allocation)?;
             for dimension in shape_values {
-                shape.push(
-                    dimension
-                        .as_u64()
-                        .ok_or(SafeTensorError::InvalidTensor)?,
-                );
+                shape.push(dimension.as_u64().ok_or(SafeTensorError::InvalidTensor)?);
             }
             let offsets = entry
                 .get("data_offsets")
