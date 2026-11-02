@@ -174,7 +174,7 @@ impl VqMatrix {
                 let mut residual = [0.0_f32; GROUP_SIZE];
                 residual.copy_from_slice(chunk);
                 let (_, codes) = beam_search_additive(&residual, &codebooks, config.beam_width);
-                                for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
+                for (stage, code) in codes.iter().take(config.codebook_count).enumerate() {
                     let selector_in_row = group_in_row * config.codebook_count + stage;
                     let byte_index = destination + selector_in_row / 2;
                     let shift = (selector_in_row % 2) * 4;

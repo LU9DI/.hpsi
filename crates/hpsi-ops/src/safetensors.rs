@@ -317,7 +317,9 @@ mod tests {
             .collect();
         let header = format!(
             r#"{{"weight":{{"dtype":"F32","shape":[{},{}],"data_offsets":[0,{}]}}}}"#,
-            rows, cols, values.len() * 4
+            rows,
+            cols,
+            values.len() * 4
         );
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
@@ -325,23 +327,22 @@ mod tests {
         for value in &values {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
-        let source = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-            4096,
-        ).unwrap();
+        let source =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
         let config = VqConfig {
             codebook_count: 2,
             sample_limit: 32,
             ..VqConfig::default()
         };
         let expected = VqMatrix::encode(&values, rows as usize, cols as usize, config).unwrap();
-        let actual = VqMatrix::encode_from_reader(
-            rows as usize,
-            cols as usize,
-            config,
-            |first, count| source.read_f32_elements("weight", first, count)
-                .map_err(|_| crate::VqError("Safetensors window read failed")),
-        ).unwrap();
+        let actual =
+            VqMatrix::encode_from_reader(rows as usize, cols as usize, config, |first, count| {
+                source
+                    .read_f32_elements("weight", first, count)
+                    .map_err(|_| crate::VqError("Safetensors window read failed"))
+            })
+            .unwrap();
         assert_eq!(actual.codebook(), expected.codebook());
         assert_eq!(actual.packed_indices(), expected.packed_indices());
     }
