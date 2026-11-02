@@ -260,7 +260,9 @@ fn validate_directories(
         return Err(FormatError::InvalidDirectory("directory count mismatch"));
     }
 
-    let mut lookup = HashMap::with_capacity(tensors.len());
+    let mut lookup = HashMap::new();
+    lookup.try_reserve(tensors.len())
+        .map_err(|_| FormatError::LimitExceeded("tensor lookup allocation failed"))?;
     let mut expected_first_block = 0_u64;
     let mut previous_tensor_id = None;
     for (index, tensor) in tensors.iter().enumerate() {
@@ -288,7 +290,9 @@ fn validate_directories(
         return Err(FormatError::InvalidDirectory("tensor block ranges do not cover block directory"));
     }
 
-    let mut payload_ranges = Vec::with_capacity(blocks.len());
+    let mut payload_ranges = Vec::new();
+    payload_ranges.try_reserve_exact(blocks.len())
+        .map_err(|_| FormatError::LimitExceeded("payload range allocation failed"))?;
     for tensor in tensors {
         let start = usize::try_from(tensor.first_block_index)
             .map_err(|_| FormatError::InvalidDirectory("first block index exceeds address space"))?;
@@ -339,7 +343,9 @@ fn validate_directories(
         }
     }
 
-    let mut integrity_targets = HashMap::with_capacity(integrity.len());
+    let mut integrity_targets = HashMap::new();
+    integrity_targets.try_reserve(integrity.len())
+        .map_err(|_| FormatError::LimitExceeded("integrity index allocation failed"))?;
     for (index, record) in integrity.iter().enumerate() {
         if integrity_targets.insert(record.target, index).is_some() {
             return Err(FormatError::InvalidDirectory("duplicate integrity target"));
@@ -369,7 +375,10 @@ fn validate_reference_cycles(
     blocks: &[BlockDescriptor],
     lookup: &HashMap<u32, usize>,
 ) -> Result<()> {
-    let mut edges = vec![Vec::<usize>::new(); tensors.len()];
+    let mut edges = Vec::new();
+    edges.try_reserve_exact(tensors.len())
+        .map_err(|_| FormatError::LimitExceeded("reference graph allocation failed"))?;
+    edges.resize_with(tensors.len(), Vec::<usize>::new);
     for (index, tensor) in tensors.iter().enumerate() {
         if let Some(reference) = tensor.representation_ref {
             let target = u32::try_from(reference)
@@ -391,7 +400,10 @@ fn validate_reference_cycles(
         }
     }
 
-    let mut color = vec![0_u8; tensors.len()];
+    let mut color = Vec::new();
+    color.try_reserve_exact(tensors.len())
+        .map_err(|_| FormatError::LimitExceeded("reference traversal allocation failed"))?;
+    color.resize(tensors.len(), 0_u8);
     for start in 0..tensors.len() {
         if color[start] != 0 {
             continue;
