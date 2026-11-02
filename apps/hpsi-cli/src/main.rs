@@ -20,7 +20,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let Some(path) = args.get(1) else {
         return Err(usage());
     };
-    if command == "safetensors-inspect" && args.len() == 2 {\n        return inspect_safetensors(path);\n    }\n    let tensor_id = match command {
+    if command == "safetensors-inspect" && args.len() == 2 {
+        return inspect_safetensors(path);
+    }
+    let tensor_id = match command {
         "inspect" | "verify" if args.len() == 2 => None,
         "calibrate" if args.len() == 3 => Some(
             args[2]
