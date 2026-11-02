@@ -491,7 +491,7 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
             "import plan does not cover the complete source tensor set",
         ));
     }
-    if let Some(calibrations) = calibrations {
+    if calibrations.is_some() {
         if calibration_by_name
             .keys()
             .any(|name| !planned_names.contains(name))
