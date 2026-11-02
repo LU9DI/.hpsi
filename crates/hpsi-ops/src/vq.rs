@@ -54,6 +54,28 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
     ) -> Result<Self, VqError> {
+        Self::encode_internal(weights, rows, cols, config, None)
+    }
+
+    /// Encode using activation second moments as per-input-column importance.
+    /// Importance is averaged by group position because codebooks are shared.
+    pub fn encode_activation_aware(
+        weights: &[f32],
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        activation_second_moment: &[f32],
+    ) -> Result<Self, VqError> {
+        Self::encode_internal(weights, rows, cols, config, Some(activation_second_moment))
+    }
+
+    fn encode_internal(
+        weights: &[f32],
+        rows: usize,
+        cols: usize,
+        config: VqConfig,
+        activation_second_moment: Option<&[f32]>,
+    ) -> Result<Self, VqError> {
         let expected = rows
             .checked_mul(cols)
             .ok_or(VqError("matrix element count overflow"))?;
@@ -79,6 +101,21 @@ impl VqMatrix {
             return Err(VqError("matrix weights must be finite"));
         }
 
+        let mut dimension_scale = [1.0_f32; GROUP_SIZE];
+        if let Some(importance) = activation_second_moment {
+            if importance.len() != cols || importance.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+                return Err(VqError("activation importance must contain one finite positive value per column"));
+            }
+            for dimension in 0..GROUP_SIZE {
+                let mean = importance.iter().skip(dimension).step_by(GROUP_SIZE)
+                    .map(|v| f64::from(*v)).sum::<f64>() / (cols / GROUP_SIZE) as f64;
+                dimension_scale[dimension] = mean.sqrt() as f32;
+                if !dimension_scale[dimension].is_finite() || dimension_scale[dimension] <= 0.0 {
+                    return Err(VqError("activation importance scale is invalid"));
+                }
+            }
+        }
+
         let group_count = expected / GROUP_SIZE;
         let sample_count = group_count.min(config.sample_limit);
         let mut samples = Vec::with_capacity(sample_count);
@@ -88,6 +125,9 @@ impl VqMatrix {
             let mut vector = [0.0_f32; GROUP_SIZE];
             let start = group_index * GROUP_SIZE;
             vector.copy_from_slice(&weights[start..start + GROUP_SIZE]);
+            for (dimension, value) in vector.iter_mut().enumerate() {
+                *value *= dimension_scale[dimension];
+            }
             samples.push(vector);
         }
 
