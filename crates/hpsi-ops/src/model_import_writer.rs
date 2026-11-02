@@ -1201,6 +1201,157 @@ mod tests {
     }
 
     #[test]
+    fn imports_many_tensors_with_calibration_provenance_under_bounded_config() {
+        const VQ_TENSORS: usize = 16;
+        const RAW_TENSORS: usize = 128;
+        let mut entries = Vec::new();
+        let mut payload = Vec::new();
+        for index in 0..VQ_TENSORS {
+            let name = format!("layers.{index:03}.proj.weight");
+            let start = payload.len();
+            for element in 0..16 {
+                let value = ((index * 17 + element) as f32 * 0.071).sin();
+                payload.extend_from_slice(&value.to_le_bytes());
+            }
+            let end = payload.len();
+            entries.push(format!(
+                r#""{name}":{{"dtype":"F32","shape":[2,8],"data_offsets":[{start},{end}]}}"#
+            ));
+        }
+        for index in 0..RAW_TENSORS {
+            let name = format!("buffers.{index:03}");
+            let start = payload.len();
+            payload.extend(std::iter::repeat_n(index as u8, 16));
+            let end = payload.len();
+            entries.push(format!(
+                r#""{name}":{{"dtype":"U8","shape":[16],"data_offsets":[{start},{end}]}}"#
+            ));
+        }
+        let header = format!("{{{}}}", entries.join(","));
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(&payload);
+        let source = SafeTensorFile::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
+            64 * 1024,
+        )
+        .unwrap();
+
+        let calibrations: Vec<_> = (0..VQ_TENSORS)
+            .map(|index| ActivationCalibration {
+                layer_name: format!("layers.{index:03}.proj.weight"),
+                sample_count: 64,
+                features: 8,
+                activation_second_moment: vec![0.25 + index as f32 * 0.01; 8],
+                model_type: "synthetic-transformer-stress".into(),
+                model_revision: Some("fixture-revision".into()),
+                dataset_sha256: "c".repeat(64),
+            })
+            .collect();
+        let calibrated = ModelImportPlan::build_with_provenance(
+            &source,
+            &calibrations,
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
+        let mut stress_config = config();
+        stress_config.iterations = 2;
+        let mut output = Cursor::new(Vec::new());
+        let stats = write_model_import_to_hpsi_calibrated(
+            &source,
+            &calibrated,
+            &mut output,
+            stress_config,
+            1,
+        )
+        .unwrap();
+        assert_eq!(stats.tensor_count, RAW_TENSORS + VQ_TENSORS * 2);
+
+        let reader = ModelReader::open(
+            Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+            &ReaderLimits::default(),
+        )
+        .unwrap();
+        reader.verify_all().unwrap();
+        let source_entries = reader.metadata.value["user"]["source_tensors"]
+            .as_array()
+            .unwrap();
+        assert_eq!(source_entries.len(), RAW_TENSORS + VQ_TENSORS);
+        assert_eq!(
+            source_entries
+                .iter()
+                .filter(|entry| entry.get("calibration").is_some())
+                .count(),
+            VQ_TENSORS
+        );
+        assert!(
+            source_entries
+                .iter()
+                .filter(|entry| entry["disposition"] == "preserve_raw")
+                .all(|entry| entry.get("calibration").is_none())
+        );
+    }
+
+    #[test]
+    fn calibrated_path_writer_verifies_and_never_overwrites_destination() {
+        let (source, _, _) = fixture();
+        let calibration = ActivationCalibration {
+            layer_name: "weight".into(),
+            sample_count: 12,
+            features: 8,
+            activation_second_moment: vec![0.5; 8],
+            model_type: "test-transformer".into(),
+            model_revision: None,
+            dataset_sha256: "d".repeat(64),
+        };
+        let calibrated = ModelImportPlan::build_with_provenance(
+            &source,
+            &[calibration],
+            UnsupportedTensorPolicy::AllowRawPreservation,
+        )
+        .unwrap();
+        let sequence = IMPORT_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "hpsi-calibrated-path-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let destination = directory.join("model.hpsi");
+        let result = write_model_import_to_hpsi_path_calibrated(
+            &source,
+            &calibrated,
+            &destination,
+            config(),
+            1,
+        );
+        assert!(result.is_ok());
+        let file_source = Arc::new(FileSource::open(&destination).unwrap());
+        let reader = ModelReader::open(file_source, &ReaderLimits::default()).unwrap();
+        reader.verify_all().unwrap();
+        assert_eq!(
+            reader.metadata.value["user"]["source_tensors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["name"] == "weight")
+                .unwrap()["calibration"]["dataset_sha256"],
+            "d".repeat(64)
+        );
+        assert!(
+            write_model_import_to_hpsi_path_calibrated(
+                &source,
+                &calibrated,
+                &destination,
+                config(),
+                1,
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
     fn imports_all_safetensors_dtypes_to_hpsi_without_payload_loss() {
         let dtypes = [
             ("BOOL", 8_u64, DType::Opaque),
