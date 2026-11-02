@@ -1155,7 +1155,7 @@ mod tests {
             model_revision: None,
             dataset_sha256: "b".repeat(64),
         };
-        let mut calibrated = ModelImportPlan::build_with_provenance(
+        let calibrated = ModelImportPlan::build_with_provenance(
             &source,
             &[calibration],
             UnsupportedTensorPolicy::AllowRawPreservation,
