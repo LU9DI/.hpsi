@@ -32,6 +32,14 @@ impl Metadata {
             }
         }
 
+        for key in ["model", "producer", "user"] {
+            if object.get(key).is_some_and(|value| !value.is_object()) {
+                return Err(FormatError::InvalidMetadata(
+                    "model, producer, and user metadata must be objects",
+                ));
+            }
+        }
+
         if object.get("format").and_then(Value::as_str) != Some("hpsi") {
             return Err(FormatError::InvalidMetadata("format must be hpsi"));
         }
@@ -121,6 +129,29 @@ impl Metadata {
 #[cfg(test)]
 mod resource_limit_tests {
     use super::*;
+
+    #[test]
+    fn descriptive_metadata_fields_must_be_objects() {
+        for (key, value) in [
+            ("model", serde_json::json!("model-name")),
+            ("producer", serde_json::json!(["producer"])),
+            ("user", serde_json::json!(42)),
+        ] {
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "format": "hpsi",
+                "metadata_version": 1,
+                "tensor_names": [],
+                key: value
+            }))
+            .unwrap();
+            assert!(matches!(
+                Metadata::parse(&bytes, &ReaderLimits::default()),
+                Err(FormatError::InvalidMetadata(
+                    "model, producer, and user metadata must be objects"
+                ))
+            ));
+        }
+    }
 
     #[test]
     fn rejects_metadata_with_excessive_total_json_nodes() {
