@@ -1633,3 +1633,59 @@ mod hpsi_streaming_export_tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod reusable_reader_buffer_tests {
+    use super::*;
+
+    #[test]
+    fn reusable_reader_buffer_matches_vec_reader_encoding() {
+        let rows = 8usize;
+        let cols = 16usize;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index as f32) * 0.071).sin() * 0.5)
+            .collect();
+        let config = VqConfig {
+            iterations: 4,
+            sample_limit: 32,
+            codebook_count: 2,
+            beam_width: 4,
+        };
+        let mut legacy_rows = Vec::new();
+        let legacy_codebook = VqMatrix::encode_from_reader_to(
+            rows,
+            cols,
+            config,
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+            |_, row| {
+                legacy_rows.extend_from_slice(row);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let mut reused_rows = Vec::new();
+        let reused_codebook = VqMatrix::encode_from_reader_into(
+            rows,
+            cols,
+            config,
+            |offset, target| {
+                let start = offset as usize;
+                target.copy_from_slice(&weights[start..start + target.len()]);
+                Ok(())
+            },
+            |_, row| {
+                reused_rows.extend_from_slice(row);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(reused_codebook, legacy_codebook);
+        assert_eq!(reused_rows, legacy_rows);
+    }
+}
