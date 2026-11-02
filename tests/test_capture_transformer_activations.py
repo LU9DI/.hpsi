@@ -16,6 +16,13 @@ class CaptureUtilityTests(unittest.TestCase):
     def test_safe_name_removes_path_and_shell_unfriendly_characters(self):
         self.assertEqual(MODULE.safe_name("../model.layers.0/self_attn:q_proj"), "model.layers.0_self_attn_q_proj")
 
+    def test_linear_module_maps_to_safetensors_weight_key(self):
+        self.assertEqual(
+            MODULE.source_tensor_name("model.layers.0.self_attn.q_proj"),
+            "model.layers.0.self_attn.q_proj.weight",
+        )
+        self.assertEqual(MODULE.source_tensor_name(""), "weight")
+
     def test_sha256_file_hashes_exact_dataset_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "dataset.jsonl"
