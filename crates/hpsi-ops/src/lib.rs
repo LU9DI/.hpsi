@@ -1,10 +1,12 @@
 mod activation;
 mod model_import;
+mod model_import_writer;
 mod projection;
 mod safetensors;
 mod vq;
 
 pub use activation::{ActivationCalibration, CalibrationError};
+pub use model_import_writer::write_model_import_to_hpsi;
 pub use model_import::{
     ModelImportPlan, PlannedTensor, TensorDisposition, UnsupportedTensorPolicy,
 };
