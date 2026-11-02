@@ -1,7 +1,7 @@
 # Tasks — HPSI Core Container
 
 **Feature:** 001-hpsi-core-container  
-**Status:** Not started  
+**Status:** In progress  
 **Rule:** A task is complete only with code, tests, and recorded evidence. Documentation-only completion does not satisfy implementation tasks.
 
 ## Phase 0 — Repository and toolchain baseline
@@ -55,23 +55,23 @@
 
 ## Phase 4 — Writer
 
-- [ ] T038 Define writer input model for metadata, tensor descriptors, blocks, and opaque payloads.
-- [ ] T039 Validate all writer inputs before creating/replacing destination.
+- [x] T038 Define writer input model for metadata, tensor descriptors, blocks, and opaque payloads.
+- [x] T039 Validate all writer inputs before creating/replacing destination.
 - [ ] T040 Calculate canonical region layout with checked arithmetic and zero padding.
-- [ ] T041 Serialize metadata, tensor directory, block directory, payload, and integrity records.
+- [x] T041 Serialize metadata, tensor directory, block directory, payload, and integrity records.
 - [ ] T042 Implement securely created temporary sibling output file.
 - [ ] T043 Flush/synchronize where supported, reopen with reference reader, and verify output.
 - [ ] T044 Replace destination atomically where supported; document platform guarantees.
 - [ ] T045 Test that failed writes preserve pre-existing destination and clean only owned temporary files.
-- [ ] T046 Add deterministic writer round-trip fixtures.
+- [x] T046 Add deterministic writer round-trip fixtures.
 
 ## Phase 5 — CLI
 
-- [ ] T047 Create thin `hpsi` CLI binary.
+- [x] T047 Create thin `hpsi` CLI binary.
 - [ ] T048 Implement `hpsi inspect <file>` with tensor names/shapes/codecs/block counts and logical/stored sizes.
 - [ ] T049 Ensure inspect output labels stored bytes vs logical bytes and reports no compression claim.
-- [ ] T050 Implement `hpsi verify <file>` with per-region verification summary.
-- [ ] T051 Add exit codes and actionable errors for invalid files, unsupported versions/codecs, and I/O failures.
+- [x] T050 Implement `hpsi verify <file>` with per-region verification summary.
+- [x] T051 Add exit codes and actionable errors for invalid files, unsupported versions/codecs, and I/O failures.
 - [ ] T052 Add CLI integration tests, including proof that inspect does not read payload.
 
 ## Phase 6 — Adversarial validation and fuzzing
