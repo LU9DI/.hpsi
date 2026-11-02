@@ -7,9 +7,13 @@ mod vq;
 
 pub use activation::{ActivationCalibration, CalibrationError};
 pub use model_import::{
-    ModelImportPlan, PlannedTensor, TensorDisposition, UnsupportedTensorPolicy,
+    CalibratedModelImportPlan, CalibrationProvenance, ModelImportPlan, PlannedTensor,
+    TensorDisposition, UnsupportedTensorPolicy,
 };
-pub use model_import_writer::{write_model_import_to_hpsi, write_model_import_to_hpsi_path};
+pub use model_import_writer::{
+    write_model_import_to_hpsi, write_model_import_to_hpsi_calibrated,
+    write_model_import_to_hpsi_path, write_model_import_to_hpsi_path_calibrated,
+};
 pub use projection::{
     ProjectionCandidate, ProjectionError, discover_projection_candidates,
     try_discover_projection_candidates,
