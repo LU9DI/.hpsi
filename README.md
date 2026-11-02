@@ -564,3 +564,18 @@ The first implementation slice is now specified on branch `feat/hpsi-core-contai
 - [HPSI binary format v0.1 draft](docs/format-v0.1.md)
 
 **Important:** these are design and acceptance artifacts, not a claim that the reader, writer, CLI, or codecs have already been implemented. Feature 001 deliberately isolates container correctness and safe random access from compression algorithms and inference kernels.
+
+
+## Implementation status — Feature 001
+
+The first Rust workspace and format primitives now exist on `feat/hpsi-core-container`:
+
+- Rust workspace pinned to 1.85.0 / edition 2024.
+- `hpsi-format`: typed format errors, configurable initial reader limits, fixed 128-byte header parser, checked top-level region arithmetic, and random-access source abstraction for files and memory.
+- Initial unit/integration tests for header validation and memory-source range reads.
+- `hpsi` CLI package shell (the `inspect` and `verify` commands are not implemented yet).
+- GitHub Actions matrix for Windows, Ubuntu, and macOS running formatting, Clippy, and tests.
+
+**Validation status:** the first CI attempts correctly caught formatting differences. Those formatting changes have been applied; the latest branch revision still requires a completed CI run. No passing result is claimed yet.
+
+**Not implemented yet:** metadata parsing, tensor/block directory parsing, full ModelReader, writer, CRC32C, CLI commands, fuzzing, and any compression or direct-compute kernel.
