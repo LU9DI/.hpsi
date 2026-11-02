@@ -69,33 +69,35 @@ The encoder now supports one through four additive codebooks. Each residual stag
 
 The deterministic benchmark reports all four rates on the same matrix and held-out inputs. It measures a 32-row window through `ModelReader` over a `MemorySource` using a prepared `HpsiVqExecutor`: the shared codebook is loaded once at executor construction, then each timed operation reads only the selected index block(s) and computes only the requested rows. Initialization latency is reported separately from repeated row-window p50/p95 and payload bytes per window. This isolates container parsing, block selection, and direct computation without claiming physical-storage latency. The in-memory VQ operator, prepared HPSI row-window path, and dense F32 reference are reported separately.
 
-### Recorded four-rate sweep — CI run #70
+### Recorded four-rate and prepared-executor sweep — CI run #81
 
-Run: [GitHub Actions #70](https://github.com/LU9DI/.hpsi/actions/runs/41371563253)
+Run: [GitHub Actions #81](https://github.com/LU9DI/.hpsi/actions/runs/41372204223)
 
-All four modes used the same deterministic synthetic 256 × 256 F32 matrix and the same 16 held-out input vectors. Latency uses 100 repetitions per path.
+All four modes used the same deterministic synthetic 256 × 256 F32 matrix and the same 16 held-out input vectors. Latency uses 100 repetitions per path. The benchmark now uses a prepared `HpsiVqExecutor`: codebook initialization is measured separately, and repeated row-window calls reuse that codebook.
 
 | Metric | Dense F32 | 1 codebook | 2 codebooks | 3 codebooks | 4 codebooks |
 |---|---:|---:|---:|---:|---:|
 | Selector bits per 8-weight group | — | 4 | 8 | 12 | 16 |
-| Encode time (ms) | — | 8.870 | 17.624 | 26.809 | 38.940 |
+| Encode time (ms) | — | 8.995 | 17.694 | 26.809 | 36.675 |
 | Complete HPSI artifact (bytes) | 262,144* | 5,984 | 10,592 | 15,200 | 19,808 |
 | Compression vs. dense F32 | 1× | 43.81× | 24.75× | 17.25× | 13.23× |
 | Held-out relative L2 error | 0 | 0.763030 | 0.589400 | 0.448215 | 0.346410 |
 | Held-out max absolute error | 0 | 1.384189 | 1.202029 | 0.836721 | 0.701543 |
-| In-memory direct matvec p50 (ms) | 0.051576 | 0.060573 | 0.121157 | 0.181760 | 0.241913 |
-| In-memory direct matvec p95 (ms) | 0.060093 | 0.089909 | 0.129753 | 0.191009 | 0.250269 |
+| In-memory direct matvec p50 (ms) | 0.055302 | 0.066429 | 0.133229 | 0.200900 | 0.269412 |
+| In-memory direct matvec p95 (ms) | 0.062894 | 0.074622 | 0.142002 | 0.209613 | 0.280018 |
 
 *Dense F32 tensor size, not a container artifact.
 
-The HPSI row-window path was measured separately for a 32-row window (one eighth of the matrix rows) using `ModelReader` over `MemorySource`:
+The HPSI prepared row-window path was measured separately for a 32-row window (one eighth of the matrix rows), using `ModelReader` over `MemorySource`:
 
 | Metric | 1 codebook | 2 codebooks | 3 codebooks | 4 codebooks |
 |---|---:|---:|---:|---:|
-| HPSI row-window p50 (ms) | 0.008125 | 0.015870 | 0.023604 | 0.031229 |
-| HPSI row-window p95 (ms) | 0.008205 | 0.015940 | 0.023684 | 0.031299 |
-| Payload bytes read per 32-row window | 1,024 | 2,048 | 3,072 | 4,096 |
+| Executor initialization p50 (ms) | 0.004246 | 0.002113 | 0.002814 | 0.002374 |
+| HPSI row-window p50 (ms) | 0.008443 | 0.016875 | 0.025448 | 0.034111 |
+| HPSI row-window p95 (ms) | 0.008453 | 0.016905 | 0.025578 | 0.037416 |
+| Codebook payload loaded at initialization (bytes) | 512 | 1,024 | 1,536 | 2,048 |
+| Index payload bytes read per 32-row window | 512 | 1,024 | 1,536 | 2,048 |
 
-These row-window timings are not directly comparable to the full 256-row dense matvec: the HPSI operation computes only 32 output rows. They include codebook and selected-index block reads from an in-memory source, not physical disk latency.
+The executor reads the codebook once during initialization. Each timed row-window operation reads only the selector payload for the selected 32 rows; it does not reload the codebook. These row-window timings are not directly comparable to the full 256-row dense matvec: the HPSI operation computes only 32 output rows. The source is in-memory, not physical storage.
 
-**Interpretation:** four codebooks reduce held-out relative L2 error by about 54.6% compared with one codebook, but artifact compression falls from 43.81× to 13.23× and in-memory direct matvec p50 becomes about 4.69× slower than dense F32. The added residual stages improve fidelity monotonically in this experiment, but do not yet produce an acceptable speed/quality tradeoff. The GitHub-hosted runner's exact CPU model and power state were not recorded, so timings are illustrative. A pinned local CPU run and a real file-backed I/O benchmark remain open tasks.
+**Interpretation:** four codebooks reduce held-out relative L2 error by about 54.6% compared with one codebook, but artifact compression falls from 43.81× to 13.23× and in-memory direct matvec p50 is about 4.87× slower than dense F32. The prepared executor separates one-time codebook loading from repeated row access and avoids recomputing rows outside the requested window. It improves the I/O/work boundary, but does not make the current CPU kernel faster than dense F32. The added residual stages improve fidelity monotonically in this experiment, but do not yet produce an acceptable speed/quality tradeoff. The GitHub-hosted runner's exact CPU model and power state were not recorded, so timings are illustrative. A pinned local CPU run and a real file-backed I/O benchmark remain open tasks.
