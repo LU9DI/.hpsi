@@ -36,7 +36,7 @@ pub fn discover_projection_candidates(tensors: &[SafeTensorInfo]) -> Vec<Project
             let cols = tensor.shape[1];
             // Current VQ groups eight adjacent input features. Other shapes
             // remain visible to inspection but are not yet VQ-import candidates.
-            if cols % 8 != 0 {
+            if cols % 16 != 0 {
                 return None;
             }
             Some(ProjectionCandidate {
@@ -97,7 +97,7 @@ mod tests {
                 vec![64, 128],
             ),
             info("model.layers.0.norm.weight", "F32", vec![128]),
-            info("model.layers.0.mlp.custom.weight", "F16", vec![32, 24]),
+            info("model.layers.0.mlp.custom.weight", "F16", vec![32, 32]),
             info("model.layers.0.mlp.bad.weight", "F32", vec![32, 7]),
             info("embedding.weight", "I8", vec![100, 128]),
         ];
