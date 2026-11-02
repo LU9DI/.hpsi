@@ -207,13 +207,18 @@ fn activation_weighted_relative_error(
             for stage in 0..matrix.codebook_count() {
                 let selector = group * matrix.codebook_count() + stage;
                 let packed = matrix.packed_indices()[selector / 2];
-                let code = usize::from(if selector % 2 == 0 { packed & 0x0f } else { packed >> 4 });
+                let code = usize::from(if selector % 2 == 0 {
+                    packed & 0x0f
+                } else {
+                    packed >> 4
+                });
                 reconstructed += matrix.codebook()[stage * 16 * 8 + code * 8 + dimension];
             }
             let difference = f64::from(source[dimension] - reconstructed);
             let weight = f64::from(importance[column_start + dimension]);
             error_squared += weight * difference * difference;
-            reference_squared += weight * f64::from(source[dimension]) * f64::from(source[dimension]);
+            reference_squared +=
+                weight * f64::from(source[dimension]) * f64::from(source[dimension]);
         }
     }
     (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
@@ -399,7 +404,10 @@ fn main() {
         &weights,
         ROWS,
         COLS,
-        VqConfig { codebook_count: 4, ..VqConfig::default() },
+        VqConfig {
+            codebook_count: 4,
+            ..VqConfig::default()
+        },
         &activation_importance,
     )
     .expect("valid activation-aware synthetic matrix");
@@ -513,7 +521,10 @@ fn main() {
     println!("four_heldout_max_absolute_error: {:.6}", quality16.1);
     println!("activation_aware_codebook_count: 4");
     println!("activation_aware_encode_ms: {activation_encode_ms:.3}");
-    println!("activation_aware_representation_bytes: {}", activation_matrix.stored_bytes());
+    println!(
+        "activation_aware_representation_bytes: {}",
+        activation_matrix.stored_bytes()
+    );
     println!("activation_weighted_error_before: {ordinary_weighted_error:.6}");
     println!("activation_weighted_error_after: {activation_weighted_error:.6}");
     println!("four_direct_matvec_p50_ms: {:.6}", vq16_latency.0);
