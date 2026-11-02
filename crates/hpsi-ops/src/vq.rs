@@ -3,9 +3,9 @@ use hpsi_format::{
 };
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static VQ_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -1591,7 +1591,6 @@ mod payload_block_tests {
         let mode = fs::metadata(&spool.path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
-
 
     #[test]
     fn splits_payload_without_losing_bytes() {
