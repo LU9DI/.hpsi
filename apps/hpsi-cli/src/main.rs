@@ -5,7 +5,12 @@ use hpsi_ops::{
 };
 use serde_json::json;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
+
+const MAX_CALIBRATION_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_CALIBRATION_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_CALIBRATION_FILES: usize = 1024;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -249,15 +254,36 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
             }
         }
         files.sort_unstable();
+        if files.len() > MAX_CALIBRATION_FILES {
+            return Err(format!(
+                "calibration directory contains {} JSON files; limit is {}",
+                files.len(),
+                MAX_CALIBRATION_FILES
+            ));
+        }
+        let mut total_bytes = 0_u64;
         for path in files {
-            let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
-            if metadata.len() > 64 * 1024 * 1024 {
+            // Read through a hard byte cap rather than trusting metadata alone:
+            // the file may change between metadata inspection and the read.
+            let file = fs::File::open(&path).map_err(|e| e.to_string())?;
+            let mut contents = String::new();
+            file.take(MAX_CALIBRATION_FILE_BYTES + 1)
+                .read_to_string(&mut contents)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            let file_bytes = u64::try_from(contents.len())
+                .map_err(|_| "calibration file length exceeds u64".to_owned())?;
+            if file_bytes > MAX_CALIBRATION_FILE_BYTES {
                 return Err(format!(
                     "calibration file exceeds the 64 MiB limit: {}",
                     path.display()
                 ));
             }
-            let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            total_bytes = total_bytes
+                .checked_add(file_bytes)
+                .ok_or_else(|| "total calibration byte count overflow".to_owned())?;
+            if total_bytes > MAX_CALIBRATION_TOTAL_BYTES {
+                return Err("calibration directory exceeds the 128 MiB aggregate limit".to_owned());
+            }
             let calibration = ActivationCalibration::from_json(&contents)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             calibrations.push(calibration);
