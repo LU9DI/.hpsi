@@ -82,19 +82,9 @@ impl ModelImportPlan {
             .try_reserve(calibrations.len())
             .map_err(|_| VqError("could not allocate activation calibration index"))?;
         for calibration in calibrations {
-            if calibration.layer_name.trim().is_empty()
-                || calibration.sample_count == 0
-                || calibration.features == 0
-                || calibration.activation_second_moment.len() != calibration.features
-                || calibration
-                    .activation_second_moment
-                    .iter()
-                    .any(|value| !value.is_finite() || *value < 0.0)
-            {
-                return Err(VqError(
-                    "activation calibration contains invalid dimensions or moments",
-                ));
-            }
+            calibration
+                .validate()
+                .map_err(|_| VqError("activation calibration contains invalid values or provenance"))?;
             if calibration_by_name
                 .insert(calibration.layer_name.as_str(), calibration)
                 .is_some()
