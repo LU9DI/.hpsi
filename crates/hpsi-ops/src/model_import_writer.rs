@@ -28,9 +28,10 @@ const MAX_IMPORT_FILE_BYTES: u64 = 1_u64 << 40;
 struct ImportSpool {
     path: PathBuf,
     file: Option<std::fs::File>,
+    max_bytes: u64,
 }
 impl ImportSpool {
-    fn create() -> Result<Self, VqError> {
+    fn create(max_bytes: u64) -> Result<Self, VqError> {
         for _ in 0..128 {
             let sequence = IMPORT_SPOOL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
@@ -47,6 +48,7 @@ impl ImportSpool {
                     return Ok(Self {
                         path,
                         file: Some(file),
+                        max_bytes,
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -63,7 +65,18 @@ impl Read for ImportSpool {
 }
 impl Write for ImportSpool {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.file.as_mut().expect("spool is open").write(bytes)
+        let file = self.file.as_mut().expect("spool is open");
+        let position = file.stream_position()?;
+        let end = position.checked_add(bytes.len() as u64).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "import spool size overflow")
+        })?;
+        if end > self.max_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "import spool exceeded its preflight payload limit",
+            ));
+        }
+        file.write(bytes)
     }
     fn flush(&mut self) -> std::io::Result<()> {
         self.file.as_mut().expect("spool is open").flush()
@@ -468,7 +481,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     provenance
         .try_reserve_exact(plan.tensors.len())
         .map_err(|_| VqError("could not reserve import provenance"))?;
-    let mut spool = ImportSpool::create()?;
+    let mut spool = ImportSpool::create(output_payload_bytes)?;
     let mut next_id = 0_u32;
 
     for planned in &plan.tensors {
@@ -953,7 +966,7 @@ mod tests {
 }
 #[test]
 fn import_spool_is_removed_when_dropped() {
-    let spool = ImportSpool::create().unwrap();
+    let spool = ImportSpool::create(1024).unwrap();
     let path = spool.path.clone();
     assert!(path.exists());
     drop(spool);
