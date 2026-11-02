@@ -714,11 +714,14 @@ mod tests {
 
         fn read_exact_at(&self, offset: u64, buffer: &mut [u8]) -> Result<()> {
             self.reads.lock().unwrap().push((offset, buffer.len()));
-            let start = usize::try_from(offset)
-                .map_err(|_| FormatError::InvalidRegion("test offset"))?;
-            let end = start.checked_add(buffer.len())
+            let start =
+                usize::try_from(offset).map_err(|_| FormatError::InvalidRegion("test offset"))?;
+            let end = start
+                .checked_add(buffer.len())
                 .ok_or(FormatError::ArithmeticOverflow("test read"))?;
-            let source = self.bytes.get(start..end)
+            let source = self
+                .bytes
+                .get(start..end)
                 .ok_or(FormatError::InvalidRegion("test read out of bounds"))?;
             buffer.copy_from_slice(source);
             Ok(())
@@ -726,13 +729,24 @@ mod tests {
     }
 
     fn tracking_source(size: usize) -> TrackingSource {
-        TrackingSource { bytes: vec![0; size], reads: Mutex::new(Vec::new()) }
+        TrackingSource {
+            bytes: vec![0; size],
+            reads: Mutex::new(Vec::new()),
+        }
     }
 
     fn regions_out_of_order() -> [Region; 2] {
         [
-            Region { name: "later", offset: 300, length: 20 },
-            Region { name: "earlier", offset: 160, length: 20 },
+            Region {
+                name: "later",
+                offset: 300,
+                length: 20,
+            },
+            Region {
+                name: "earlier",
+                offset: 160,
+                length: 20,
+            },
         ]
     }
 
@@ -741,10 +755,7 @@ mod tests {
         let source = tracking_source(400);
         let verified = verify_padding_regions(&source, &regions_out_of_order(), 152).unwrap();
         assert_eq!(verified, 152);
-        assert_eq!(
-            *source.reads.lock().unwrap(),
-            vec![(128, 32), (180, 120)]
-        );
+        assert_eq!(*source.reads.lock().unwrap(), vec![(128, 32), (180, 120)]);
     }
 
     #[test]
@@ -770,12 +781,22 @@ mod tests {
     #[test]
     fn large_padding_gap_is_scanned_in_bounded_chunks() {
         let source = tracking_source(200_200);
-        let regions = [Region { name: "last", offset: 200_000, length: 8 }];
-        assert_eq!(verify_padding_regions(&source, &regions, 199_872).unwrap(), 199_872);
+        let regions = [Region {
+            name: "last",
+            offset: 200_000,
+            length: 8,
+        }];
+        assert_eq!(
+            verify_padding_regions(&source, &regions, 199_872).unwrap(),
+            199_872
+        );
         let reads = source.reads.lock().unwrap();
         assert_eq!(reads.len(), 4);
         assert!(reads.iter().all(|(_, length)| *length <= 64 * 1024));
-        assert_eq!(reads.iter().map(|(_, length)| *length).sum::<usize>(), 199_872);
+        assert_eq!(
+            reads.iter().map(|(_, length)| *length).sum::<usize>(),
+            199_872
+        );
     }
 
     #[test]
