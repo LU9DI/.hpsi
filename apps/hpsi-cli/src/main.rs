@@ -354,3 +354,105 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
 fn usage() -> String {
     "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors> | hpsi safetensors-import <model.safetensors> <output.hpsi> [--calibration-dir <dir>] [--reject-raw]".to_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hpsi_format::{MemorySource, ModelReader, ReaderLimits};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory(std::path::PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "hpsi-cli-test-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create test directory");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_raw_u8_safetensors(path: &Path) {
+        let header = br#"{"embedding":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&[3, 5, 7, 11]);
+        fs::write(path, bytes).expect("write safetensors fixture");
+    }
+
+    #[test]
+    fn cli_imports_raw_tensor_and_verifies_hpsi_output() {
+        let directory = TestDirectory::new();
+        let source = directory.path().join("model.safetensors");
+        let destination = directory.path().join("model.hpsi");
+        write_raw_u8_safetensors(&source);
+
+        import_safetensors_command(&[
+            "safetensors-import".to_owned(),
+            source.display().to_string(),
+            destination.display().to_string(),
+        ])
+        .expect("CLI import should succeed");
+
+        let reader = ModelReader::open(
+            Arc::new(FileSource::open(&destination).expect("open imported HPSI")),
+            &ReaderLimits::default(),
+        )
+        .expect("parse imported HPSI");
+        assert_eq!(reader.tensor_count(), 1);
+        reader.verify_all().expect("verify imported HPSI");
+    }
+
+    #[test]
+    fn cli_reject_raw_rejects_unsupported_tensor_without_output() {
+        let directory = TestDirectory::new();
+        let source = directory.path().join("model.safetensors");
+        let destination = directory.path().join("model.hpsi");
+        write_raw_u8_safetensors(&source);
+
+        let result = import_safetensors_command(&[
+            "safetensors-import".to_owned(),
+            source.display().to_string(),
+            destination.display().to_string(),
+            "--reject-raw".to_owned(),
+        ]);
+        assert!(result.is_err());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn cli_does_not_overwrite_existing_destination() {
+        let directory = TestDirectory::new();
+        let source = directory.path().join("model.safetensors");
+        let destination = directory.path().join("model.hpsi");
+        write_raw_u8_safetensors(&source);
+        fs::write(&destination, b"preserve-existing-file").expect("create destination");
+
+        let result = import_safetensors_command(&[
+            "safetensors-import".to_owned(),
+            source.display().to_string(),
+            destination.display().to_string(),
+        ]);
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(&destination).expect("read existing destination"),
+            b"preserve-existing-file"
+        );
+    }
+}
