@@ -85,3 +85,19 @@ same-directory temporary file, syncs it, reopens and verifies the complete
 artifact, and publishes it with a non-overwriting hard link. The callback
 must write exactly the declared block length. The older in-memory writer API
 remains available and unchanged.
+
+
+## Incremental VQ row emission and HPSI export
+
+`VqMatrix::encode_from_reader_to` now emits one byte-aligned selector row
+at a time through a callback and returns only the trained codebook. The
+activation-aware counterpart applies the same group-position scaling as the
+buffered encoder while preserving the row-at-a-time output contract.
+
+`VqMatrix::encode_from_reader_to_hpsi` connects this encoder to
+`ModelWriter::write_streaming`. It writes selector rows into caller-provided
+seekable spool storage, then streams the codebook and bounded selector blocks
+into the HPSI container. This avoids retaining the complete packed selector
+matrix in RAM. The spool is caller-owned so applications can choose an in-memory
+cursor for small inputs or a temporary file for large models. Dense source
+weights are still read through bounded windows.
