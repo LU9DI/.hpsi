@@ -435,6 +435,90 @@ mod tests {
     }
 
     #[test]
+    fn cli_imports_calibration_directory_and_persists_provenance() {
+        let directory = TestDirectory::new();
+        let source = directory.path().join("model.safetensors");
+        let calibration_dir = directory.path().join("calibration");
+        let destination = directory.path().join("model.hpsi");
+        fs::create_dir(&calibration_dir).expect("create calibration directory");
+
+        let rows = 8_u64;
+        let cols = 16_u64;
+        let payload_len = rows * cols * 4;
+        let header = format!(
+            r#"{{"weight":{{"dtype":"F32","shape":[{rows},{cols}],"data_offsets":[0,{payload_len}]}}}}"#
+        );
+        let mut safetensors = Vec::new();
+        safetensors.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        safetensors.extend_from_slice(header.as_bytes());
+        for index in 0..(rows * cols) {
+            let value = (index as f32 * 0.037).sin();
+            safetensors.extend_from_slice(&value.to_le_bytes());
+        }
+        fs::write(&source, safetensors).expect("write F32 Safetensors fixture");
+
+        let moments = (0..cols)
+            .map(|index| format!("{:.6}", 0.25_f32 + index as f32 * 0.01))
+            .collect::<Vec<_>>()
+            .join(",");
+        let calibration = format!(
+            r#"{{
+                "format":"hpsi-activation-calibration",
+                "version":1,
+                "model":{{"model_type":"test-transformer","revision":"fixture-revision"}},
+                "dataset":{{"sha256":"{}"}},
+                "layer_name":"weight",
+                "shape":[32,{cols}],
+                "sample_count":32,
+                "statistic":"diagonal_second_moment",
+                "activation_second_moment":[{moments}]
+            }}"#,
+            "a".repeat(64)
+        );
+        fs::write(calibration_dir.join("0000_weight.json"), calibration)
+            .expect("write calibration fixture");
+        fs::write(
+            calibration_dir.join("manifest.json"),
+            r#"{"format":"hpsi-transformer-calibration-manifest","version":1}"#,
+        )
+        .expect("write capture manifest");
+
+        import_safetensors_command(&[
+            "safetensors-import".to_owned(),
+            source.display().to_string(),
+            destination.display().to_string(),
+            "--calibration-dir".to_owned(),
+            calibration_dir.display().to_string(),
+        ])
+        .expect("calibrated CLI import should succeed");
+
+        let reader = ModelReader::open(
+            Arc::new(FileSource::open(&destination).expect("open calibrated HPSI")),
+            &ReaderLimits::default(),
+        )
+        .expect("parse calibrated HPSI");
+        reader.verify_all().expect("verify calibrated HPSI");
+        assert_eq!(reader.tensor_count(), 2);
+        let source_tensors = reader.metadata.value["user"]["source_tensors"]
+            .as_array()
+            .expect("source tensor metadata");
+        let weight = source_tensors
+            .iter()
+            .find(|item| item["name"] == "weight")
+            .expect("weight provenance");
+        assert_eq!(weight["calibration"]["model_type"], "test-transformer");
+        assert_eq!(weight["calibration"]["model_revision"], "fixture-revision");
+        assert_eq!(weight["calibration"]["dataset_sha256"], "a".repeat(64));
+        assert_eq!(weight["calibration"]["sample_count"], 32);
+        assert_eq!(weight["calibration"]["features"], 16);
+        assert_eq!(
+            weight["calibration"]["statistic"],
+            "diagonal_second_moment"
+        );
+        assert!(weight["calibration"].get("activation_second_moment").is_none());
+    }
+
+    #[test]
     fn cli_does_not_overwrite_existing_destination() {
         let directory = TestDirectory::new();
         let source = directory.path().join("model.safetensors");
