@@ -71,6 +71,9 @@ impl SafeTensorFile {
         let file_len = source.len().map_err(|_| SafeTensorError::Io)?;
         let data_len = file_len - data_start;
         let mut tensors = Vec::new();
+        tensors
+            .try_reserve_exact(object.len())
+            .map_err(|_| SafeTensorError::Allocation)?;
         for (name, value) in object {
             if name == "__metadata__" {
                 continue;
@@ -81,13 +84,21 @@ impl SafeTensorFile {
                 .and_then(Value::as_str)
                 .ok_or(SafeTensorError::InvalidTensor)?
                 .to_owned();
-            let shape = entry
+            let shape_values = entry
                 .get("shape")
                 .and_then(Value::as_array)
-                .ok_or(SafeTensorError::InvalidTensor)?
-                .iter()
-                .map(|v| v.as_u64().ok_or(SafeTensorError::InvalidTensor))
-                .collect::<Result<Vec<_>, _>>()?;
+                .ok_or(SafeTensorError::InvalidTensor)?;
+            let mut shape = Vec::new();
+            shape
+                .try_reserve_exact(shape_values.len())
+                .map_err(|_| SafeTensorError::Allocation)?;
+            for dimension in shape_values {
+                shape.push(
+                    dimension
+                        .as_u64()
+                        .ok_or(SafeTensorError::InvalidTensor)?,
+                );
+            }
             let offsets = entry
                 .get("data_offsets")
                 .and_then(Value::as_array)
