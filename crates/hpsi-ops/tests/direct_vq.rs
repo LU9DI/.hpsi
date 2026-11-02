@@ -41,6 +41,37 @@ fn weight_relative_l2(weights: &[f32], matrix: &VqMatrix) -> f64 {
     (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
 }
 
+fn scalar_reference_matvec(
+    matrix: &VqMatrix,
+    input: &[f32],
+    output: &mut [f32],
+) {
+    let groups_per_row = matrix.cols() / 8;
+    let codebook = matrix.codebook();
+    let selectors = matrix.packed_indices();
+    for row in 0..matrix.rows() {
+        let mut accumulator = 0.0_f32;
+        for group in 0..groups_per_row {
+            let global_group = row * groups_per_row + group;
+            for stage in 0..matrix.codebook_count() {
+                let selector = global_group * matrix.codebook_count() + stage;
+                let packed = selectors[selector / 2];
+                let code = usize::from(if selector % 2 == 0 {
+                    packed & 0x0f
+                } else {
+                    packed >> 4
+                });
+                let codebook_offset = stage * 16 * 8 + code * 8;
+                for dimension in 0..8 {
+                    accumulator += input[group * 8 + dimension]
+                        * codebook[codebook_offset + dimension];
+                }
+            }
+        }
+        output[row] = accumulator;
+    }
+}
+
 fn heldout_relative_l2(weights: &[f32], rows: usize, cols: usize, matrix: &VqMatrix) -> f64 {
     let view = matrix.view();
     let mut error_squared = 0.0_f64;
@@ -140,6 +171,41 @@ fn additive_codebook_reduces_weight_domain_error() {
         assert!(heldout_relative_l2(&weights, rows, cols, &additive).is_finite());
         previous_error = additive_error;
         previous_size = additive.stored_bytes();
+    }
+}
+
+#[test]
+fn centroid_dot_table_matches_scalar_reference_for_all_rates() {
+    let rows = 96;
+    let cols = 128;
+    let weights = synthetic_weights(rows, cols);
+    let input: Vec<f32> = (0..cols)
+        .map(|index| ((index as f32) * 0.037).cos() * 0.8)
+        .collect();
+
+    for codebook_count in 1..=4 {
+        let matrix = VqMatrix::encode(
+            &weights,
+            rows,
+            cols,
+            VqConfig {
+                codebook_count,
+                ..VqConfig::default()
+            },
+        )
+        .unwrap();
+        let mut optimized = vec![0.0_f32; rows];
+        let mut scalar = vec![0.0_f32; rows];
+        matrix.view().matvec(&input, &mut optimized).unwrap();
+        scalar_reference_matvec(&matrix, &input, &mut scalar);
+
+        for (row, (actual, expected)) in optimized.iter().zip(&scalar).enumerate() {
+            let difference = (actual - expected).abs();
+            assert!(
+                difference <= 2.0e-5,
+                "rate {codebook_count}, row {row}: optimized={actual}, scalar={expected}, diff={difference}"
+            );
+        }
     }
 }
 
