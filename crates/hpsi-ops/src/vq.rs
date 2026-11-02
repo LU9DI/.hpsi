@@ -347,10 +347,19 @@ impl VqMatrix {
             emit_row(row as u64, &packed_row)?;
         }
 
-        Ok(codebooks
-            .into_iter()
-            .flat_map(|book| book.into_iter().flatten())
-            .collect())
+        let codebook_len = config.codebook_count
+            .checked_mul(CODEBOOK_VALUES)
+            .ok_or(VqError("VQ codebook length overflow"))?;
+        let mut flattened_codebook = Vec::new();
+        flattened_codebook
+            .try_reserve_exact(codebook_len)
+            .map_err(|_| VqError("could not allocate flattened VQ codebook"))?;
+        for book in codebooks {
+            for centroid in book {
+                flattened_codebook.extend_from_slice(&centroid);
+            }
+        }
+        Ok(flattened_codebook)
     }
 
     /// Streaming equivalent of activation-aware encoding. Importance is
