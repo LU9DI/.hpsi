@@ -291,9 +291,7 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
         // dimensions. Safetensors also permits scalar and zero-sized shapes,
         // so reject those here rather than after spooling the complete payload.
         if info.shape.is_empty() || info.shape.len() > 8 || info.shape.contains(&0) {
-            return Err(VqError(
-                "source tensor shape cannot be represented in HPSI",
-            ));
+            return Err(VqError("source tensor shape cannot be represented in HPSI"));
         }
         match planned.disposition {
             TensorDisposition::QuantizeVq => {
@@ -993,17 +991,12 @@ mod tests {
         bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
         bytes.extend_from_slice(header);
         bytes.extend_from_slice(&1.0_f32.to_le_bytes());
-        let source = SafeTensorFile::open(
-            Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))),
-            4096,
-        )
-        .unwrap();
-        let plan = ModelImportPlan::build(
-            &source,
-            &[],
-            UnsupportedTensorPolicy::AllowRawPreservation,
-        )
-        .unwrap();
+        let source =
+            SafeTensorFile::open(Arc::new(MemorySource::new(Arc::<[u8]>::from(bytes))), 4096)
+                .unwrap();
+        let plan =
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation)
+                .unwrap();
         let mut output = Cursor::new(Vec::new());
         assert!(write_model_import_to_hpsi(&source, &plan, &mut output, config(), 1).is_err());
         assert!(output.get_ref().is_empty());
