@@ -66,3 +66,20 @@ A caller can pass the validated vector directly to
 &calibration.activation_second_moment)`. The matrix column count must equal
 `calibration.features`. This is a library integration point; a complete source-model
 weight importer and layer-by-layer end-to-end evaluation are still separate work.
+
+## Inspecting local Safetensors weights
+
+The Rust `hpsi-ops` crate now includes a bounded-header, random-access Safetensors reader.
+It parses tensor names, dtypes, shapes and byte ranges without loading the weight payloads.
+For rank-2 F32 tensors, `SafeTensorFile::read_f32_rows` reads only a requested row window.
+The CLI exposes metadata inspection:
+
+```bash
+cargo run -p hpsi-cli -- safetensors-inspect ./model.safetensors
+```
+
+This first importer stage deliberately supports reading F32 row windows only; F16/BF16
+and other supported metadata dtypes can be identified but are not silently converted.
+The current CLI command reports metadata and does not yet quantize tensors or write an
+HPSI model. Sharded model indexes, automatic layer/calibration matching, and end-to-end
+weight conversion remain follow-up work.
