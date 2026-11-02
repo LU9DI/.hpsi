@@ -78,7 +78,7 @@ All four modes used the same deterministic synthetic 256 × 256 F32 matrix and t
 | Metric | Dense F32 | 1 codebook | 2 codebooks | 3 codebooks | 4 codebooks |
 |---|---:|---:|---:|---:|---:|
 | Selector bits per 8-weight group | — | 4 | 8 | 12 | 16 |
-| Encode time (ms) | — | 7.461 | 17.694 | 26.809 | 36.675 |
+| Encode time (ms) | — | 7.461 | 14.775 | 22.375 | 30.642 |
 | Complete HPSI artifact (bytes) | 262,144* | 5,984 | 10,592 | 15,200 | 19,808 |
 | Compression vs. dense F32 | 1× | 43.81× | 24.75× | 17.25× | 13.23× |
 | Held-out relative L2 error | 0 | 0.763030 | 0.589400 | 0.448215 | 0.346410 |
