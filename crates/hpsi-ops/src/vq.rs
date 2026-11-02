@@ -1778,7 +1778,8 @@ mod hpsi_streaming_export_tests {
             reader.verify_all().unwrap();
             let mut selectors = Vec::new();
             for block_id in 0..expected_blocks {
-                selectors.extend_from_slice(&reader.read_block(1, block_id as u32).unwrap().payload);
+                selectors
+                    .extend_from_slice(&reader.read_block(1, block_id as u32).unwrap().payload);
             }
             assert_eq!(selectors.len(), expected_selector_bytes);
         }
@@ -1808,7 +1809,10 @@ mod hpsi_streaming_export_tests {
                 Ok(weights[start..start + count as usize].to_vec())
             },
         );
-        assert!(matches!(result, Err(VqError("selector spool must be empty"))));
+        assert!(matches!(
+            result,
+            Err(VqError("selector spool must be empty"))
+        ));
     }
 
     #[test]
