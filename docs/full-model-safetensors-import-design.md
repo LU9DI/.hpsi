@@ -20,7 +20,8 @@ The current VQ-quantizable set is deliberately narrow:
 
 - rank-2 tensors;
 - source dtype `F32`, `F16`, or `BF16`;
-- feature dimension divisible by the VQ group size.
+- feature dimension divisible by the VQ group size;
+- for the selected VQ configuration, the number of packed selectors per row (`(features / group_size) * codebook_count`) must be even so each independently emitted row is byte-aligned. The writer validates this before encoding.
 
 All other eligible-to-preserve tensors follow the explicit policy:
 
