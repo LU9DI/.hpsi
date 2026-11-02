@@ -644,7 +644,7 @@ This produces a versioned JSON calibration document for the activation-aware VQ 
 
 ## Importing real activation calibration
 
-The Rust `hpsi-ops` crate exposes `ActivationCalibration::from_json` to validate the versioned JSON artifacts emitted by the capture utility, including layer dimensions and dataset provenance. Its `activation_second_moment` vector can be passed to `VqMatrix::encode_activation_aware`; zero-valued moments from inactive features are supported with a numerical floor in the encoder. This connects calibration parsing to the quantizer API, but does not yet import source-model weight tensors or establish end-to-end model quality.
+The Rust `hpsi-ops` crate exposes `ActivationCalibration::from_json` to validate the versioned JSON artifacts emitted by the capture utility, including layer dimensions and dataset provenance. The multi-tensor Safetensors importer accepts these calibrations through `ModelImportPlan::build`, matches each calibration to an exact source tensor name and feature count, and uses its `activation_second_moment` vector when VQ-quantizing eligible F32/F16/BF16 weights. The resulting artifact is written through `write_model_import_to_hpsi` or the verified, no-replace filesystem API `write_model_import_to_hpsi_path`. Calibration provenance itself is not yet persisted in the HPSI import metadata, and real-model quality/perplexity has not yet been established; see [the importer contract](docs/full-model-safetensors-import-design.md).
 
 ## Real Transformer activation capture
 
