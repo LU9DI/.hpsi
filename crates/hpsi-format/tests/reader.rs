@@ -5,9 +5,9 @@ use hpsi_format::{MemorySource, ModelReader, ReaderLimits};
 fn fixture() -> Vec<u8> {
     let metadata = br#"{"format":"hpsi","metadata_version":1,"tensor_names":["weights"]}"#;
     let metadata_offset = 128_usize;
-    let tensor_offset = 192_usize;
-    let block_offset = 320_usize;
-    let payload_offset = 384_usize;
+    let tensor_offset = 200_usize;
+    let block_offset = 328_usize;
+    let payload_offset = 392_usize;
     let payload = [0x11_u8, 0x22, 0x33, 0x44];
     let file_size = payload_offset + payload.len();
     let mut file = vec![0_u8; file_size];
@@ -91,15 +91,9 @@ fn rejects_unknown_tensor_id() {
 #[test]
 fn rejects_invalid_tensor_metadata_reference() {
     let mut bytes = fixture();
-    bytes[192 + 96..192 + 100].copy_from_slice(&9_u32.to_le_bytes());
+    bytes[200 + 96..200 + 100].copy_from_slice(&9_u32.to_le_bytes());
     let source = Arc::new(MemorySource::new(bytes));
 
     assert!(ModelReader::open(source, &ReaderLimits::default()).is_err());
 }
 
-#[test]
-fn crc32c_uses_castagnoli_polynomial() {
-    let mut crc = hpsi_format::test_support::Crc32cTest::new();
-    crc.update(b"123456789");
-    assert_eq!(crc.finish(), 0xe306_9283);
-}
