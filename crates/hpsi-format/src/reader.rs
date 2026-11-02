@@ -666,7 +666,25 @@ mod tests {
         assert_eq!(crc.finish(), 0xe306_9283);
     }
     #[test]
-    fn integrity_coverage_rejects_missing_block_record() {
+    fn integrity_coverage_allows_optional_records() {
+        use crate::BlockDescriptor;
+        let block = BlockDescriptor {
+            tensor_id: 7,
+            block_id: 0,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 4,
+            payload_offset: 256,
+            payload_length: 4,
+            auxiliary_ref: None,
+            checksum_index: None,
+        };
+        assert!(super::validate_integrity_coverage(&[block], &[]).is_ok());
+    }
+
+    #[test]
+    fn integrity_coverage_allows_metadata_only_record() {
         use crate::{BlockDescriptor, IntegrityRecord, IntegrityTarget};
         let block = BlockDescriptor {
             tensor_id: 7,
@@ -678,16 +696,13 @@ mod tests {
             payload_offset: 256,
             payload_length: 4,
             auxiliary_ref: None,
-            checksum_index: Some(1),
+            checksum_index: None,
         };
         let records = [IntegrityRecord {
             target: IntegrityTarget::Metadata,
             crc32c: 0,
         }];
-        assert!(matches!(
-            super::validate_integrity_coverage(&[block], &records),
-            Err(crate::FormatError::InvalidDirectory(_))
-        ));
+        assert!(super::validate_integrity_coverage(&[block], &records).is_ok());
     }
 
     #[test]
