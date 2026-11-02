@@ -787,8 +787,9 @@ impl Crc32c {
 
 #[cfg(test)]
 mod tests {
-    use super::{Crc32c, verify_padding_regions};
-    use crate::{FormatError, RandomAccessSource, Region, Result};
+    use super::{Crc32c, validate_acyclic_references, verify_padding_regions};
+    use crate::{BlockDescriptor, DType, FormatError, RandomAccessSource, Region, Result, TensorDescriptor};
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
     struct TrackingSource {
@@ -911,6 +912,94 @@ mod tests {
         assert!(matches!(
             super::validate_acyclic_graph(&[vec![1]]),
             Err(crate::FormatError::InvalidReference(_))
+        ));
+    }
+
+    fn graph_tensor(
+        tensor_id: u32,
+        first_block_index: u64,
+        block_count: u32,
+        representation_ref: Option<u64>,
+    ) -> TensorDescriptor {
+        TensorDescriptor {
+            tensor_id,
+            rank: 1,
+            dtype: DType::U8,
+            codec: 1,
+            block_count,
+            first_block_index,
+            logical_nbytes: 1,
+            dimensions: [1, 0, 0, 0, 0, 0, 0, 0],
+            name_ref: 0,
+            representation_ref,
+        }
+    }
+
+    fn graph_block(tensor_id: u32, block_id: u32, auxiliary_ref: Option<u64>) -> BlockDescriptor {
+        BlockDescriptor {
+            tensor_id,
+            block_id,
+            codec: 1,
+            layout: 0,
+            logical_offset: 0,
+            logical_length: 1,
+            payload_offset: 256 + u64::from(block_id),
+            payload_length: 1,
+            auxiliary_ref,
+            checksum_index: None,
+        }
+    }
+
+    #[test]
+    fn descriptor_reference_walk_accepts_converging_edges() {
+        // 10 -> 20 and 30; both 20 and 30 -> 40.
+        let tensors = [
+            graph_tensor(10, 0, 2, None),
+            graph_tensor(20, 2, 1, None),
+            graph_tensor(30, 3, 1, None),
+            graph_tensor(40, 4, 0, None),
+        ];
+        let blocks = [
+            graph_block(10, 0, Some(20)),
+            graph_block(10, 1, Some(30)),
+            graph_block(20, 0, Some(40)),
+            graph_block(30, 0, Some(40)),
+        ];
+        let lookup = tensors.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        assert!(validate_acyclic_references(&tensors, &blocks, &lookup).is_ok());
+    }
+
+    #[test]
+    fn descriptor_reference_walk_rejects_representation_and_auxiliary_cycles() {
+        let representation_cycle = [
+            graph_tensor(10, 0, 0, Some(20)),
+            graph_tensor(20, 0, 0, Some(10)),
+        ];
+        let lookup = representation_cycle.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        assert!(matches!(
+            validate_acyclic_references(&representation_cycle, &[], &lookup),
+            Err(FormatError::InvalidReference("cyclic auxiliary tensor references"))
+        ));
+
+        let auxiliary_cycle = [
+            graph_tensor(10, 0, 1, None),
+            graph_tensor(20, 1, 1, None),
+        ];
+        let blocks = [graph_block(10, 0, Some(20)), graph_block(20, 0, Some(10))];
+        let lookup = auxiliary_cycle.iter().enumerate().map(|(i, t)| (t.tensor_id, i)).collect::<HashMap<_, _>>();
+        assert!(matches!(
+            validate_acyclic_references(&auxiliary_cycle, &blocks, &lookup),
+            Err(FormatError::InvalidReference("cyclic auxiliary tensor references"))
+        ));
+    }
+
+    #[test]
+    fn descriptor_reference_walk_rejects_missing_target() {
+        let tensors = [graph_tensor(10, 0, 0, Some(99))];
+        let lookup = HashMap::from([(10, 0)]);
+        assert!(matches!(
+            validate_acyclic_references(&tensors, &[], &lookup),
+            Err(FormatError::InvalidReference("tensor representation reference is missing"))
         ));
     }
 
