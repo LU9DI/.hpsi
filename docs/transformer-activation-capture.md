@@ -52,3 +52,17 @@ The second-moment field is directly compatible with the vector expected by `VqMa
 Record the exact local model snapshot, tokenizer files, Python/PyTorch/Transformers versions, dataset contents, and command-line limits alongside experimental results. Dataset SHA-256 identifies the exact JSONL bytes, but does not prove the dataset is representative.
 
 The model is loaded in float32 on CPU, which can require substantial RAM. Start with a small local model and a small calibration corpus. The current hook targets standard Linear modules and does not yet cover every Transformer architecture, fused attention implementation, convolution-style projection, or multimodal model. No real-model quality or perplexity claim is made until layer-output and end-task evaluations are run.
+
+## Import calibration into the Rust quantizer
+
+The `hpsi-ops` crate now exposes `ActivationCalibration::from_json`. It validates the
+format/version, statistic name, sample/feature shape, moment vector, and dataset SHA-256
+provenance before exposing the per-feature values. Zero second moments are accepted:
+they can represent inactive features, and the activation-aware encoder applies a small
+positive numerical floor internally when deriving its group-position scale.
+
+A caller can pass the validated vector directly to
+`VqMatrix::encode_activation_aware(weights, rows, cols, config,
+&calibration.activation_second_moment)`. The matrix column count must equal
+`calibration.features`. This is a library integration point; a complete source-model
+weight importer and layer-by-layer end-to-end evaluation are still separate work.
