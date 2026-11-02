@@ -672,13 +672,7 @@ fn validate_acyclic_references(
         stack.push((start, usize::MAX));
 
         while let Some((node, next_block)) = stack.last_mut() {
-            let dependency = next_reference(
-                tensors,
-                blocks,
-                lookup,
-                *node,
-                next_block,
-            )?;
+            let dependency = next_reference(tensors, blocks, lookup, *node, next_block)?;
             let Some(dependency) = dependency else {
                 let finished = *node;
                 stack.pop();
