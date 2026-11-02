@@ -10,6 +10,7 @@ use std::path::Path;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 static IMPORT_SPOOL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const COPY_CHUNK_BYTES: usize = 64 * 1024;
