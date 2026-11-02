@@ -35,6 +35,28 @@ fn open_import_temporary_file(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+struct ImportOutputTemporaryFile {
+    path: PathBuf,
+    file: Option<std::fs::File>,
+}
+
+impl Drop for ImportOutputTemporaryFile {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(unix)]
+fn sync_import_parent_directory(parent: &Path) -> std::io::Result<()> {
+    fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_import_parent_directory(_parent: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 struct ImportSpool {
     path: PathBuf,
     file: Option<std::fs::File>,
@@ -170,13 +192,25 @@ pub fn write_model_import_to_hpsi_path(
         }
         created.ok_or(VqError("could not allocate temporary HPSI output"))?
     };
-    let result = (|| {
-        let stats =
-            write_model_import_to_hpsi(source, plan, &mut temporary_file, config, block_rows)?;
-        temporary_file
+    let mut temporary = ImportOutputTemporaryFile {
+        path: temporary_path.clone(),
+        file: Some(temporary_file),
+    };
+    (|| {
+        let stats = write_model_import_to_hpsi(
+            source,
+            plan,
+            temporary.file.as_mut().expect("temporary output is open"),
+            config,
+            block_rows,
+        )?;
+        temporary
+            .file
+            .as_mut()
+            .expect("temporary output is open")
             .sync_all()
             .map_err(|_| VqError("could not sync temporary HPSI output"))?;
-        drop(temporary_file);
+        drop(temporary.file.take());
         let file_source = Arc::new(
             FileSource::open(&temporary_path)
                 .map_err(|_| VqError("could not reopen temporary HPSI output"))?,
@@ -188,14 +222,13 @@ pub fn write_model_import_to_hpsi_path(
             .map_err(|_| VqError("temporary HPSI output failed integrity verification"))?;
         fs::hard_link(&temporary_path, destination)
             .map_err(|_| VqError("could not publish HPSI output without overwriting"))?;
-        #[cfg(unix)]
-        if let Ok(directory) = fs::File::open(parent) {
-            let _ = directory.sync_all();
-        }
+        sync_import_parent_directory(parent).map_err(|_| {
+            VqError(
+                "HPSI output was published but parent directory sync failed; crash durability is uncertain",
+            )
+        })?;
         Ok(stats)
-    })();
-    let _ = fs::remove_file(&temporary_path);
-    result
+    })()
 }
 
 /// Write a complete deterministic Safetensors import as one HPSI artifact.
@@ -1074,5 +1107,27 @@ fn import_spool_is_removed_when_dropped() {
     let path = spool.path.clone();
     assert!(path.exists());
     drop(spool);
+    assert!(!path.exists());
+}
+
+#[test]
+fn import_output_temporary_file_is_removed_during_unwind() {
+    let sequence = IMPORT_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        ".hpsi-import-unwind-{}-{sequence}.tmp",
+        std::process::id()
+    ));
+    let file = open_import_temporary_file(&path).unwrap();
+    let temporary = ImportOutputTemporaryFile {
+        path: path.clone(),
+        file: Some(file),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _temporary = temporary;
+        panic!("injected import output unwind");
+    }));
+
+    assert!(result.is_err());
     assert!(!path.exists());
 }
