@@ -71,7 +71,10 @@ impl ActivationCalibration {
                 "moment count does not match feature dimension",
             ));
         }
-        let mut activation_second_moment = Vec::with_capacity(features);
+        let mut activation_second_moment = Vec::new();
+        activation_second_moment
+            .try_reserve_exact(features)
+            .map_err(|_| CalibrationError("could not allocate activation calibration values"))?;
         for value in values {
             let number = value
                 .as_f64()
