@@ -39,8 +39,12 @@ impl Metadata {
             return Err(FormatError::LimitExceeded("metadata tensor name count"));
         }
 
-        let mut seen = HashSet::with_capacity(names.len());
-        let mut tensor_names = Vec::with_capacity(names.len());
+        let mut seen = HashSet::new();
+        seen.try_reserve(names.len())
+            .map_err(|_| FormatError::LimitExceeded("tensor name index allocation failed"))?;
+        let mut tensor_names = Vec::new();
+        tensor_names.try_reserve_exact(names.len())
+            .map_err(|_| FormatError::LimitExceeded("tensor name allocation failed"))?;
         for item in names {
             let name = item.as_str()
                 .ok_or(FormatError::InvalidMetadata("tensor name must be a string"))?;
