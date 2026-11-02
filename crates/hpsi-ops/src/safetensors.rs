@@ -140,9 +140,8 @@ impl SafeTensorFile {
             return Err(SafeTensorError::InvalidTensor);
         }
         let mut tensor_name_order: Vec<usize> = (0..tensors.len()).collect();
-        tensor_name_order.sort_unstable_by(|&left, &right| {
-            tensors[left].name.cmp(&tensors[right].name)
-        });
+        tensor_name_order
+            .sort_unstable_by(|&left, &right| tensors[left].name.cmp(&tensors[right].name));
         Ok(Self {
             source,
             data_start,
@@ -170,7 +169,8 @@ impl SafeTensorFile {
         config: VqConfig,
         block_rows: usize,
     ) -> Result<WriterStats, VqError> {
-        let tensor = self.tensor_by_name(tensor_name)
+        let tensor = self
+            .tensor_by_name(tensor_name)
             .ok_or(VqError("Safetensors tensor was not found"))?;
         if tensor.shape.len() != 2 || !matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16") {
             return Err(VqError(
@@ -209,7 +209,8 @@ impl SafeTensorFile {
         // Keep memory use bounded even when a caller accidentally requests a
         // very large chunk. Smaller caller-selected chunks remain respected.
         let chunk_bytes = chunk_bytes.min(64 * 1024);
-        let tensor = self.tensor_by_name(name)
+        let tensor = self
+            .tensor_by_name(name)
             .ok_or(SafeTensorError::InvalidTensor)?;
         let length = tensor
             .data_end
