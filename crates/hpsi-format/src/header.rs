@@ -89,9 +89,9 @@ impl Header {
             name: "integrity directory",
             offset: u64_at(bytes, 88),
             length: if integrity_count == 0 {
-                if integrity_entry_size != 0 {
+                if integrity_entry_size != 0 || u64_at(bytes, 88) != 0 {
                     return Err(FormatError::InvalidHeader(
-                        "empty integrity directory must have entry size zero",
+                        "empty integrity directory must have zero offset and entry size",
                     ));
                 }
                 0
@@ -265,6 +265,16 @@ mod tests {
         let bytes = valid_header();
         assert!(matches!(
             Header::parse(&bytes, 401, &ReaderLimits::default()),
+            Err(FormatError::InvalidHeader(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_nonzero_offset_for_empty_integrity_directory() {
+        let mut bytes = valid_header();
+        bytes[88..96].copy_from_slice(&400_u64.to_le_bytes());
+        assert!(matches!(
+            Header::parse(&bytes, 400, &ReaderLimits::default()),
             Err(FormatError::InvalidHeader(_))
         ));
     }
