@@ -378,7 +378,7 @@ impl VqMatrix {
         cols: usize,
         config: VqConfig,
         activation_second_moment: &[f32],
-        mut read_elements: F,
+        read_elements: F,
     ) -> Result<Self, VqError>
     where
         F: FnMut(u64, u64) -> Result<Vec<f32>, VqError>,
