@@ -82,9 +82,9 @@ impl ModelImportPlan {
             .try_reserve(calibrations.len())
             .map_err(|_| VqError("could not allocate activation calibration index"))?;
         for calibration in calibrations {
-            calibration
-                .validate()
-                .map_err(|_| VqError("activation calibration contains invalid values or provenance"))?;
+            calibration.validate().map_err(|_| {
+                VqError("activation calibration contains invalid values or provenance")
+            })?;
             if calibration_by_name
                 .insert(calibration.layer_name.as_str(), calibration)
                 .is_some()

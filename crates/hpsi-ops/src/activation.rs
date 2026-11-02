@@ -33,21 +33,40 @@ impl ActivationCalibration {
             return Err(CalibrationError("sample_count must be positive"));
         }
         if self.features == 0 || self.activation_second_moment.len() != self.features {
-            return Err(CalibrationError("activation moment count must match positive feature count"));
+            return Err(CalibrationError(
+                "activation moment count must match positive feature count",
+            ));
         }
-        if self.activation_second_moment.iter().any(|value| !value.is_finite() || *value < 0.0) {
-            return Err(CalibrationError("activation moments must be finite and non-negative"));
+        if self
+            .activation_second_moment
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+        {
+            return Err(CalibrationError(
+                "activation moments must be finite and non-negative",
+            ));
         }
         if self.model_type.trim().is_empty() {
             return Err(CalibrationError("model_type must not be empty"));
         }
-        if self.model_revision.as_deref().is_some_and(|revision| revision.trim().is_empty()) {
-            return Err(CalibrationError("model revision must not be empty when present"));
+        if self
+            .model_revision
+            .as_deref()
+            .is_some_and(|revision| revision.trim().is_empty())
+        {
+            return Err(CalibrationError(
+                "model revision must not be empty when present",
+            ));
         }
         if self.dataset_sha256.len() != 64
-            || !self.dataset_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || !self
+                .dataset_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
         {
-            return Err(CalibrationError("dataset sha256 must be 64 hexadecimal characters"));
+            return Err(CalibrationError(
+                "dataset sha256 must be 64 hexadecimal characters",
+            ));
         }
         Ok(())
     }
