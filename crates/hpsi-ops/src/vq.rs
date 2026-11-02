@@ -8,8 +8,8 @@ const CODEBOOK_VALUES: usize = GROUP_SIZE * CODEBOOK_SIZE;
 pub struct VqConfig {
     pub iterations: usize,
     pub sample_limit: usize,
-    /// One codebook uses four selector bits per group. Two codebooks use
-    /// additive residual quantization and eight selector bits per group.
+    /// Each codebook adds one 4-bit residual selector per 8-weight group.
+    /// One through four additive codebooks are supported (0.5–2 bits/weight).
     pub codebook_count: usize,
 }
 
@@ -64,8 +64,8 @@ impl VqMatrix {
                 "k-means iterations and sample limit must be non-zero",
             ));
         }
-        if !(1..=2).contains(&config.codebook_count) {
-            return Err(VqError("only one or two additive codebooks are supported"));
+        if !(1..=4).contains(&config.codebook_count) {
+            return Err(VqError("only one through four additive codebooks are supported"));
         }
         if weights.iter().any(|value| !value.is_finite()) {
             return Err(VqError("matrix weights must be finite"));
@@ -83,50 +83,49 @@ impl VqMatrix {
             samples.push(vector);
         }
 
-        let primary = fit_codebook(&samples, config.iterations, false)?;
         let mut codebooks = Vec::with_capacity(config.codebook_count);
-        codebooks.push(primary);
-
-        if config.codebook_count == 2 {
+        for stage in 0..config.codebook_count {
             let residual_samples: Vec<[f32; GROUP_SIZE]> = samples
                 .iter()
                 .map(|sample| {
-                    let primary_code = nearest_centroid(sample, &codebooks[0]);
-                    subtract(sample, &codebooks[0][primary_code])
+                    let mut residual = *sample;
+                    for codebook in &codebooks {
+                        let code = nearest_centroid(&residual, codebook);
+                        residual = subtract(&residual, &codebook[code]);
+                    }
+                    residual
                 })
                 .collect();
-            // The zero centroid guarantees that the residual stage cannot
-            // increase per-group reconstruction error in weight space.
-            let residual = fit_codebook(&residual_samples, config.iterations, true)?;
-            codebooks.push(residual);
+            // Residual stages reserve a zero centroid. Adding a stage therefore
+            // cannot increase per-group reconstruction error in weight space.
+            let codebook = fit_codebook(
+                &residual_samples,
+                config.iterations,
+                stage != 0,
+            )?;
+            codebooks.push(codebook);
         }
 
-        let packed_len = if config.codebook_count == 1 {
-            group_count
-                .checked_add(1)
-                .ok_or(VqError("packed index count overflow"))?
-                / 2
-        } else {
-            group_count
-        };
+        let selector_count = group_count
+            .checked_mul(config.codebook_count)
+            .ok_or(VqError("packed selector count overflow"))?;
+        let packed_len = selector_count
+            .checked_add(1)
+            .ok_or(VqError("packed index count overflow"))?
+            / 2;
         let mut packed_indices = vec![0_u8; packed_len];
 
         for group_index in 0..group_count {
             let start = group_index * GROUP_SIZE;
-            let mut vector = [0.0_f32; GROUP_SIZE];
-            vector.copy_from_slice(&weights[start..start + GROUP_SIZE]);
-            let primary_code = nearest_centroid(&vector, &codebooks[0]) as u8;
-
-            if config.codebook_count == 1 {
-                if group_index % 2 == 0 {
-                    packed_indices[group_index / 2] = primary_code;
-                } else {
-                    packed_indices[group_index / 2] |= primary_code << 4;
-                }
-            } else {
-                let residual_vector = subtract(&vector, &codebooks[0][primary_code as usize]);
-                let residual_code = nearest_centroid(&residual_vector, &codebooks[1]) as u8;
-                packed_indices[group_index] = primary_code | (residual_code << 4);
+            let mut residual = [0.0_f32; GROUP_SIZE];
+            residual.copy_from_slice(&weights[start..start + GROUP_SIZE]);
+            for (stage, codebook) in codebooks.iter().enumerate() {
+                let code = nearest_centroid(&residual, codebook) as u8;
+                let selector = group_index * config.codebook_count + stage;
+                let byte_index = selector / 2;
+                let shift = (selector % 2) * 4;
+                packed_indices[byte_index] |= code << shift;
+                residual = subtract(&residual, &codebook[usize::from(code)]);
             }
         }
 
@@ -192,11 +191,7 @@ impl VqMatrix {
             ));
         }
         let groups_per_row = self.cols / GROUP_SIZE;
-        let bytes_per_row = if self.codebook_count == 1 {
-            groups_per_row / 2
-        } else {
-            groups_per_row
-        };
+        let bytes_per_row = groups_per_row * self.codebook_count / 2;
         let index_block_bytes = bytes_per_row
             .checked_mul(block_rows)
             .ok_or(VqError("index block byte count overflow"))?;
@@ -249,8 +244,8 @@ impl<'a> VqMatrixView<'a> {
         if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
             return Err(VqError("matrix shape must be non-zero and group-aligned"));
         }
-        if !(1..=2).contains(&codebook_count) {
-            return Err(VqError("only one or two codebooks are supported"));
+        if !(1..=4).contains(&codebook_count) {
+            return Err(VqError("only one through four codebooks are supported"));
         }
         if codebook.len() != CODEBOOK_VALUES * codebook_count
             || codebook.iter().any(|value| !value.is_finite())
@@ -260,14 +255,13 @@ impl<'a> VqMatrixView<'a> {
         let groups = rows
             .checked_mul(cols / GROUP_SIZE)
             .ok_or(VqError("matrix group count overflow"))?;
-        let expected_indices = if codebook_count == 1 {
-            groups
-                .checked_add(1)
-                .ok_or(VqError("packed index count overflow"))?
-                / 2
-        } else {
-            groups
-        };
+        let selector_count = groups
+            .checked_mul(codebook_count)
+            .ok_or(VqError("packed selector count overflow"))?;
+        let expected_indices = selector_count
+            .checked_add(1)
+            .ok_or(VqError("packed index count overflow"))?
+            / 2;
         if packed_indices.len() != expected_indices {
             return Err(VqError(
                 "packed index stream length does not match matrix shape",
@@ -291,30 +285,19 @@ impl<'a> VqMatrixView<'a> {
             let mut accumulator = 0.0_f32;
             for group in 0..groups_per_row {
                 let global_group = row * groups_per_row + group;
-                let (primary_code, residual_code) = if self.codebook_count == 1 {
-                    let packed = self.packed_indices[global_group / 2];
-                    (
-                        (if global_group % 2 == 0 {
-                            packed & 0x0f
-                        } else {
-                            packed >> 4
-                        }) as usize,
-                        None,
-                    )
-                } else {
-                    let packed = self.packed_indices[global_group];
-                    (usize::from(packed & 0x0f), Some(usize::from(packed >> 4)))
-                };
-
                 let input_offset = group * GROUP_SIZE;
-                let primary_offset = primary_code * GROUP_SIZE;
-                let residual_offset = residual_code.map(|code| CODEBOOK_VALUES + code * GROUP_SIZE);
-
-                for dimension in 0..GROUP_SIZE {
-                    let input_value = input[input_offset + dimension];
-                    accumulator += input_value * self.codebook[primary_offset + dimension];
-                    if let Some(offset) = residual_offset {
-                        accumulator += input_value * self.codebook[offset + dimension];
+                for stage in 0..self.codebook_count {
+                    let selector = global_group * self.codebook_count + stage;
+                    let packed = self.packed_indices[selector / 2];
+                    let code = usize::from(if selector % 2 == 0 {
+                        packed & 0x0f
+                    } else {
+                        packed >> 4
+                    });
+                    let codebook_offset = stage * CODEBOOK_VALUES + code * GROUP_SIZE;
+                    for dimension in 0..GROUP_SIZE {
+                        accumulator += input[input_offset + dimension]
+                            * self.codebook[codebook_offset + dimension];
                     }
                 }
             }
@@ -362,9 +345,9 @@ pub fn matvec_hpsi_rows(
             "requested HPSI matvec row range or input shape is invalid",
         ));
     }
-    if cols % 16 != 0 || !(1..=2).contains(&codebook_count) {
+    if cols % 16 != 0 || !(1..=4).contains(&codebook_count) {
         return Err(VqError(
-            "HPSI row streaming requires aligned columns and one or two codebooks",
+            "HPSI row streaming requires aligned columns and one through four codebooks",
         ));
     }
 
@@ -400,11 +383,7 @@ pub fn matvec_hpsi_rows(
         .collect();
 
     let groups_per_row = cols / GROUP_SIZE;
-    let bytes_per_row = if codebook_count == 1 {
-        groups_per_row / 2
-    } else {
-        groups_per_row
-    };
+    let bytes_per_row = groups_per_row * codebook_count / 2;
     let expected_index_bytes = rows
         .checked_mul(bytes_per_row)
         .ok_or(VqError("HPSI index tensor size overflow"))?;
