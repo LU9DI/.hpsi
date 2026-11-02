@@ -358,7 +358,7 @@ fn usage() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hpsi_format::{MemorySource, ModelReader, ReaderLimits};
+    use hpsi_format::{ModelReader, ReaderLimits};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
