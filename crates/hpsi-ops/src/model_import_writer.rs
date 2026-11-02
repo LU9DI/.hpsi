@@ -996,12 +996,8 @@ mod tests {
                 .unwrap();
 
         assert!(
-            ModelImportPlan::build(
-                &source,
-                &[],
-                UnsupportedTensorPolicy::AllowRawPreservation,
-            )
-            .is_err()
+            ModelImportPlan::build(&source, &[], UnsupportedTensorPolicy::AllowRawPreservation,)
+                .is_err()
         );
     }
 
