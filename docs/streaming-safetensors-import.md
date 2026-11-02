@@ -117,9 +117,7 @@ closed before cleanup for Windows compatibility. Source windows remain
 bounded, selector transfer uses a 64 KiB buffer, and the HPSI writer rejects
 callbacks that attempt to write beyond a block's declared length.
 
-The direct import currently handles rank-2 floating tensors. It does not yet
-perform a whole-model conversion across every tensor or persist calibration
-metadata; those are separate pipeline steps.
+The convenience API above remains a single-tensor path. Whole-model conversion is provided separately by the multi-tensor importer described below.
 
 ## Lossless raw payload preservation
 
@@ -132,8 +130,4 @@ and rejects a zero chunk size. This is the low-level path required for tensors t
 the VQ importer does not quantize (for example, biases, normalization
 parameters, integer tensors, and embeddings).
 
-The API deliberately copies payload bytes only. A whole-model importer must
-still map source dtype and shape into HPSI tensor descriptors, preserve the
-original Safetensors dtype in its import manifest when HPSI uses an opaque
-representation, and stage all output blocks before invoking the multi-tensor
-streaming writer once. That end-to-end orchestration is not yet implemented.
+The API deliberately copies payload bytes only. The multi-tensor orchestration is implemented by the public `ModelImportPlan`, `write_model_import_to_hpsi`, and `write_model_import_to_hpsi_path` APIs. Planning covers every source tensor in deterministic name order. Rank-2 F32/F16/BF16 tensors with a feature dimension divisible by the VQ group size are quantized; other non-scalar, non-empty tensors are either rejected by `UnsupportedTensorPolicy::Reject` or copied losslessly with `AllowRawPreservation`. The writer stages payloads on disk, builds one HPSI container, and records each source tensor's name, original dtype, original shape, and import disposition in `metadata.user.source_tensors`. Dtypes without a native HPSI scalar representation use `OPAQUE`; this preserves bytes, not native numeric semantics. For filesystem output, the path API reopens and verifies the artifact before no-replace publication. The generic seekable-writer API may leave partial output on error. Calibration is validated and can influence VQ encoding, but calibration provenance is not yet persisted in the output metadata.
