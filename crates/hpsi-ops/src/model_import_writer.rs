@@ -173,7 +173,7 @@ pub fn write_model_import_to_hpsi_path(
         .parent()
         .filter(|value| !value.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let (temporary_path, mut temporary_file) = {
+    let (temporary_path, temporary_file) = {
         let mut created = None;
         for _ in 0..128 {
             let sequence = IMPORT_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
