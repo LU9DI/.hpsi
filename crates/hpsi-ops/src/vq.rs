@@ -1738,6 +1738,80 @@ mod hpsi_streaming_export_tests {
     }
 
     #[test]
+    fn reader_encoder_round_trips_selector_blocks_for_varied_block_rows() {
+        let rows = 7usize;
+        let cols = 16usize;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index * 13 % 29) as f32 - 14.0) / 9.0)
+            .collect();
+        let config = VqConfig {
+            iterations: 3,
+            sample_limit: 32,
+            codebook_count: 2,
+            beam_width: 4,
+        };
+        let expected_selector_bytes = rows * (cols / GROUP_SIZE * config.codebook_count) / 2;
+
+        for (block_rows, expected_blocks) in [(1usize, 7usize), (3, 3), (16, 1)] {
+            let mut output = Cursor::new(Vec::new());
+            let mut spool = Cursor::new(Vec::new());
+            let stats = VqMatrix::encode_from_reader_to_hpsi(
+                &mut output,
+                &mut spool,
+                rows,
+                cols,
+                config,
+                block_rows,
+                |offset, count| {
+                    let start = offset as usize;
+                    Ok(weights[start..start + count as usize].to_vec())
+                },
+            )
+            .unwrap();
+            assert_eq!(stats.block_count, expected_blocks + 1);
+
+            let reader = ModelReader::open(
+                Arc::new(MemorySource::new(Arc::<[u8]>::from(output.into_inner()))),
+                &ReaderLimits::default(),
+            )
+            .unwrap();
+            reader.verify_all().unwrap();
+            let mut selectors = Vec::new();
+            for block_id in 0..expected_blocks {
+                selectors.extend_from_slice(&reader.read_block(1, block_id as u32).unwrap().payload);
+            }
+            assert_eq!(selectors.len(), expected_selector_bytes);
+        }
+    }
+
+    #[test]
+    fn reader_encoder_rejects_selector_spool_with_trailing_bytes() {
+        let rows = 2usize;
+        let cols = 8usize;
+        let weights = vec![0.25_f32; rows * cols];
+        let mut output = Cursor::new(Vec::new());
+        let mut spool = Cursor::new(vec![0xAA]);
+        let result = VqMatrix::encode_from_reader_to_hpsi(
+            &mut output,
+            &mut spool,
+            rows,
+            cols,
+            VqConfig {
+                iterations: 2,
+                sample_limit: 8,
+                codebook_count: 1,
+                beam_width: 2,
+            },
+            1,
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+        );
+        assert!(matches!(result, Err(VqError("selector spool must be empty"))));
+    }
+
+    #[test]
     fn reader_encoder_streams_vq_tensors_into_hpsi_writer() {
         let rows = 8;
         let cols = 16;
