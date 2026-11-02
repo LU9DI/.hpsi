@@ -427,6 +427,13 @@ fn validate_directories(
         ));
     }
 
+    // Keep only block indices while sorting payload ranges. A pair of u64
+    // endpoints costs 16 bytes per block; usize indices cost 8 bytes on
+    // 64-bit targets and let us read validated descriptors in place.
+    let mut payload_order = Vec::new();
+    payload_order
+        .try_reserve_exact(blocks.len())
+        .map_err(|_| FormatError::LimitExceeded("payload order allocation failed"))?;
     let mut payload_ranges = Vec::new();
     payload_ranges
         .try_reserve_exact(blocks.len())
@@ -495,7 +502,6 @@ fn validate_directories(
                     ));
                 }
             }
-            payload_ranges.push((block.payload_offset, payload_end));
         }
         if expected_logical_offset != tensor.logical_nbytes {
             return Err(FormatError::InvalidDirectory(
@@ -511,6 +517,23 @@ fn validate_directories(
                 "block payload ranges overlap",
             ));
         }
+    }
+
+    payload_order.extend(0..blocks.len());
+    payload_order.sort_unstable_by_key(|&index| blocks[index].payload_offset);
+    let mut previous_payload_end = None;
+    for index in payload_order {
+        let block = &blocks[index];
+        let payload_end = block
+            .payload_offset
+            .checked_add(block.payload_length)
+            .ok_or(FormatError::ArithmeticOverflow("block payload end"))?;
+        if previous_payload_end.is_some_and(|end| end > block.payload_offset) {
+            return Err(FormatError::InvalidDirectory(
+                "block payload ranges overlap",
+            ));
+        }
+        previous_payload_end = Some(payload_end);
     }
 
     validate_integrity_coverage(blocks, integrity)?;
