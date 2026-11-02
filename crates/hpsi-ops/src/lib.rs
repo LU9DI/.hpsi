@@ -5,7 +5,9 @@ mod safetensors;
 mod vq;
 
 pub use activation::{ActivationCalibration, CalibrationError};
-pub use model_import::{ModelImportPlan, PlannedTensor, TensorDisposition, UnsupportedTensorPolicy};
+pub use model_import::{
+    ModelImportPlan, PlannedTensor, TensorDisposition, UnsupportedTensorPolicy,
+};
 pub use projection::{ProjectionCandidate, discover_projection_candidates};
 pub use safetensors::{SafeTensorError, SafeTensorFile, SafeTensorInfo};
 

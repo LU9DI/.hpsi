@@ -58,44 +58,47 @@ impl ModelImportPlan {
         let mut tensors = Vec::with_capacity(names.len());
 
         for tensor in names {
-            let quantizable = tensor.shape.len() == 2
-                && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
+            let quantizable =
+                tensor.shape.len() == 2 && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
             if !quantizable && unsupported_policy == UnsupportedTensorPolicy::Reject {
-                return Err(VqError("model contains a tensor unsupported by VQ import policy"));
+                return Err(VqError(
+                    "model contains a tensor unsupported by VQ import policy",
+                ));
             }
-            let (disposition, codebook_name, indices_name, calibration_samples) =
-                if quantizable {
-                    let codebook = format!("{}.hpsi_vq.codebook", tensor.name);
-                    let indices = format!("{}.hpsi_vq.indices", tensor.name);
-                    if !generated_names.insert(codebook.clone())
-                        || !generated_names.insert(indices.clone())
-                        || codebook == indices
-                    {
-                        return Err(VqError("generated VQ tensor name collision"));
-                    }
-                    if source.tensors().iter().any(|source_tensor| {
-                        source_tensor.name == codebook || source_tensor.name == indices
-                    }) {
-                        return Err(VqError("generated VQ tensor name collides with source tensor"));
-                    }
-                    let calibration_samples = match calibration_by_name.get(tensor.name.as_str()) {
-                        Some(calibration) => {
-                            if calibration.features as u64 != tensor.shape[1] {
-                                return Err(VqError("activation calibration feature count mismatch"));
-                            }
-                            Some(calibration.sample_count)
+            let (disposition, codebook_name, indices_name, calibration_samples) = if quantizable {
+                let codebook = format!("{}.hpsi_vq.codebook", tensor.name);
+                let indices = format!("{}.hpsi_vq.indices", tensor.name);
+                if !generated_names.insert(codebook.clone())
+                    || !generated_names.insert(indices.clone())
+                    || codebook == indices
+                {
+                    return Err(VqError("generated VQ tensor name collision"));
+                }
+                if source.tensors().iter().any(|source_tensor| {
+                    source_tensor.name == codebook || source_tensor.name == indices
+                }) {
+                    return Err(VqError(
+                        "generated VQ tensor name collides with source tensor",
+                    ));
+                }
+                let calibration_samples = match calibration_by_name.get(tensor.name.as_str()) {
+                    Some(calibration) => {
+                        if calibration.features as u64 != tensor.shape[1] {
+                            return Err(VqError("activation calibration feature count mismatch"));
                         }
-                        None => None,
-                    };
-                    (
-                        TensorDisposition::QuantizeVq,
-                        Some(codebook),
-                        Some(indices),
-                        calibration_samples,
-                    )
-                } else {
-                    (TensorDisposition::PreserveRaw, None, None, None)
+                        Some(calibration.sample_count)
+                    }
+                    None => None,
                 };
+                (
+                    TensorDisposition::QuantizeVq,
+                    Some(codebook),
+                    Some(indices),
+                    calibration_samples,
+                )
+            } else {
+                (TensorDisposition::PreserveRaw, None, None, None)
+            };
             tensors.push(PlannedTensor {
                 source_name: tensor.name.clone(),
                 source_dtype: tensor.dtype.clone(),
