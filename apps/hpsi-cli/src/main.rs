@@ -192,13 +192,24 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
 
 fn inspect_safetensors(path: &str) -> Result<(), String> {
     let source = Arc::new(FileSource::open(path).map_err(|e| e.to_string())?);
-    let file = hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024)
-        .map_err(|e| e.to_string())?;
+    let file =
+        hpsi_ops::SafeTensorFile::open(source, 100 * 1024 * 1024).map_err(|e| e.to_string())?;
     println!("safetensors: {}", path);
     println!("tensors: {}", file.tensors().len());
     for tensor in file.tensors() {
-        let shape = tensor.shape.iter().map(u64::to_string).collect::<Vec<_>>().join("x");
-        println!("name={} dtype={} shape={} data_bytes={}", tensor.name, tensor.dtype, shape, tensor.data_end - tensor.data_start);
+        let shape = tensor
+            .shape
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join("x");
+        println!(
+            "name={} dtype={} shape={} data_bytes={}",
+            tensor.name,
+            tensor.dtype,
+            shape,
+            tensor.data_end - tensor.data_start
+        );
     }
     Ok(())
 }
