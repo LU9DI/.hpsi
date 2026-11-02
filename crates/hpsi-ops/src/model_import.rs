@@ -74,6 +74,14 @@ impl ModelImportPlan {
             .iter()
             .map(|tensor| tensor.name.as_str())
             .collect();
+        if calibration_by_name
+            .keys()
+            .any(|layer_name| !source_names.contains(layer_name))
+        {
+            return Err(VqError(
+                "activation calibration references a tensor absent from the source model",
+            ));
+        }
         let mut generated_names = HashSet::new();
         let mut tensors = Vec::with_capacity(names.len());
 
@@ -257,6 +265,17 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn rejects_calibration_for_unknown_source_tensor() {
+        let mut invalid = calibration();
+        invalid.layer_name = "missing.weight".into();
+        assert!(ModelImportPlan::build(
+            &source(),
+            &[invalid],
+            UnsupportedTensorPolicy::AllowRawPreservation
+        ).is_err());
     }
 
     #[test]
