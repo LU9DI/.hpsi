@@ -776,3 +776,28 @@ fn payload_blocks(bytes: &[u8], block_bytes: usize) -> Vec<PayloadBlock> {
         })
         .collect()
 }
+
+
+#[cfg(test)]
+mod row_alignment_tests {
+    use super::*;
+
+    #[test]
+    fn selector_rows_must_be_byte_aligned() {
+        assert!(selectors_per_row(24, 1).is_err());
+        assert_eq!(selectors_per_row(24, 2).unwrap(), 6);
+        assert!(selectors_per_row(24, 3).is_err());
+        assert_eq!(selectors_per_row(24, 4).unwrap(), 12);
+        for codebooks in 1..=4 {
+            assert_eq!(selectors_per_row(128, codebooks).unwrap(), 16 * codebooks);
+        }
+    }
+
+    #[test]
+    fn selector_row_validation_rejects_invalid_shapes_and_counts() {
+        assert!(selectors_per_row(0, 1).is_err());
+        assert!(selectors_per_row(7, 1).is_err());
+        assert!(selectors_per_row(24, 0).is_err());
+        assert!(selectors_per_row(24, 5).is_err());
+    }
+}
