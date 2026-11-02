@@ -126,7 +126,7 @@ Entries are sorted by strictly increasing `tensor_id`. IDs are unique. A tensor'
 
 Packed dtypes use low-order element first within each byte. The first logical element occupies the least significant bits. The final byte may contain unused high bits, which must be zero when emitted by the canonical writer. For non-OPAQUE types, the product of dimensions and dtype storage width must equal `logical_nbytes`; multiplication uses checked arithmetic. Rank zero represents a scalar with one element.
 
-The OPAQUE type is reserved for typed-by-codec data structures; it is not a license to execute embedded code.
+`OPAQUE` represents a byte stream whose semantic element type is not represented by a native HPSI dtype. It may be used for codec-defined structures and for lossless preservation of tensors from a source format when HPSI has no equivalent native dtype. For source-format preservation, the importer must retain the original source dtype and shape in descriptive metadata; the HPSI dimensions do not replace that provenance. `logical_nbytes` is authoritative, and readers must not infer element width, numeric interpretation, or permission to execute data from `OPAQUE`. It is not a license to execute embedded code.
 
 ## 6. Block directory — 64-byte entries
 
