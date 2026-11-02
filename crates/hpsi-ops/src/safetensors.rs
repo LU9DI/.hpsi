@@ -139,7 +139,11 @@ impl SafeTensorFile {
         if expected_offset != data_len {
             return Err(SafeTensorError::InvalidTensor);
         }
-        let mut tensor_name_order: Vec<usize> = (0..tensors.len()).collect();
+        let mut tensor_name_order = Vec::new();
+        tensor_name_order
+            .try_reserve_exact(tensors.len())
+            .map_err(|_| SafeTensorError::Allocation)?;
+        tensor_name_order.extend(0..tensors.len());
         tensor_name_order
             .sort_unstable_by(|&left, &right| tensors[left].name.cmp(&tensors[right].name));
         Ok(Self {
