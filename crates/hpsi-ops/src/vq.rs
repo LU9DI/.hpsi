@@ -1360,6 +1360,34 @@ fn beam_search_additive(
     Ok((residual, codes))
 }
 
+#[cfg(test)]
+mod additive_beam_search_tests {
+    use super::*;
+
+    #[test]
+    fn empty_codebook_sequence_preserves_the_input_vector() {
+        let vector = [0.25_f32; GROUP_SIZE];
+        let (residual, codes) = beam_search_additive(&vector, &[], 4).unwrap();
+        assert_eq!(residual, vector);
+        assert_eq!(codes, [0; 4]);
+    }
+
+    #[test]
+    fn rejects_invalid_beam_width_and_codebooks() {
+        let vector = [0.0_f32; GROUP_SIZE];
+        assert!(beam_search_additive(&vector, &[], 0).is_err());
+        assert!(beam_search_additive(&vector, &[Vec::new()], 1).is_err());
+        assert!(beam_search_additive(
+            &vector,
+            &[vec![[0.0; GROUP_SIZE]; CODEBOOK_SIZE + 1]],
+            1,
+        )
+        .is_err());
+        let too_many_codebooks = vec![vec![[0.0; GROUP_SIZE]; 1]; 5];
+        assert!(beam_search_additive(&vector, &too_many_codebooks, 1).is_err());
+    }
+}
+
 fn fit_codebook(
     samples: &[[f32; GROUP_SIZE]],
     iterations: usize,
