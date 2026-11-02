@@ -616,7 +616,8 @@ The new `hpsi-ops` crate contains the first compute primitive over a compressed 
 - Groups of eight adjacent F32 weights use shared 16-entry codebooks of 8-value F32 centroids.
 - One through four additive codebooks are supported, with one 4-bit selector per codebook and group (0.5–2 bits/weight before codebooks and container overhead). Residual stages reserve a zero centroid so each additional stage cannot increase weight-domain reconstruction error.
 - `VqMatrixView::matvec` computes directly from packed selectors and codebook values. It does not reconstruct a dense weight matrix.
-- `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; an integration test reads those blocks back and runs the same operation.
+- `matvec_hpsi_rows` loads the small codebook and only the index blocks intersecting the requested output-row window; the benchmark now measures this HPSI reader path separately from the in-memory operator.
+- `VqMatrix::to_hpsi_tensors` exports the codebook and selector stream as separate HPSI tensors; integration tests read those blocks back and run the same operation.
 
 The selector stream costs 0.5, 1, 1.5, or 2 bits/weight for one through four codebooks, before codebooks and container overhead. The recorded two-codebook synthetic run improved relative L2 error from 0.763 to 0.589, but that error remained high and the direct CPU kernel was slower than dense F32. The benchmark now sweeps all four rates; new results must be recorded before drawing conclusions. These are experimental measurements, **not** evidence of production model quality.
 
