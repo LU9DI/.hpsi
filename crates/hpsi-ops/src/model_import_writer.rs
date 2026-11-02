@@ -965,6 +965,14 @@ mod tests {
     }
 }
 #[test]
+fn import_spool_rejects_writes_beyond_preflight_limit() {
+    let mut spool = ImportSpool::create(4).unwrap();
+    spool.write_all(&[1, 2, 3, 4]).unwrap();
+    assert!(spool.write_all(&[5]).is_err());
+    assert_eq!(spool.seek(SeekFrom::End(0)).unwrap(), 4);
+}
+
+#[test]
 fn import_spool_is_removed_when_dropped() {
     let spool = ImportSpool::create(1024).unwrap();
     let path = spool.path.clone();
