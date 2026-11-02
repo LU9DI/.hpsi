@@ -1165,3 +1165,47 @@ mod streaming_row_emission_tests {
         assert!(matches!(result, Err(VqError("downstream writer failed"))));
     }
 }
+
+#[cfg(test)]
+mod streaming_activation_row_tests {
+    use super::*;
+
+    #[test]
+    fn activation_aware_row_emission_matches_buffered_encoder() {
+        let rows = 5;
+        let cols = 16;
+        let weights: Vec<f32> = (0..rows * cols)
+            .map(|index| ((index * 13 % 29) as f32 - 14.0) / 9.0)
+            .collect();
+        let importance: Vec<f32> = (0..cols)
+            .map(|index| (index + 1) as f32 / 3.0)
+            .collect();
+        let config = VqConfig {
+            iterations: 5,
+            sample_limit: 64,
+            codebook_count: 2,
+            beam_width: 8,
+        };
+        let buffered = VqMatrix::encode_from_reader_activation_aware(
+            rows, cols, config, &importance,
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+        ).unwrap();
+        let mut emitted = Vec::new();
+        let codebook = VqMatrix::encode_from_reader_activation_aware_to(
+            rows, cols, config, &importance,
+            |offset, count| {
+                let start = offset as usize;
+                Ok(weights[start..start + count as usize].to_vec())
+            },
+            |_, row| {
+                emitted.extend_from_slice(row);
+                Ok(())
+            },
+        ).unwrap();
+        assert_eq!(codebook, buffered.codebook());
+        assert_eq!(emitted, buffered.packed_indices());
+    }
+}
