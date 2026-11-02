@@ -45,7 +45,7 @@ fn scalar_reference_matvec(matrix: &VqMatrix, input: &[f32], output: &mut [f32])
     let groups_per_row = matrix.cols() / 8;
     let codebook = matrix.codebook();
     let selectors = matrix.packed_indices();
-    for row in 0..matrix.rows() {
+    for (row, output_value) in output.iter_mut().enumerate() {
         let mut accumulator = 0.0_f32;
         for group in 0..groups_per_row {
             let global_group = row * groups_per_row + group;
@@ -64,7 +64,7 @@ fn scalar_reference_matvec(matrix: &VqMatrix, input: &[f32], output: &mut [f32])
                 }
             }
         }
-        output[row] = accumulator;
+        *output_value = accumulator;
     }
 }
 
