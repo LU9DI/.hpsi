@@ -92,14 +92,18 @@ impl ModelImportPlan {
                     }
                     None => None,
                 };
+                let activation_second_moment = calibration_by_name
+                    .get(tensor.name.as_str())
+                    .map(|calibration| calibration.activation_second_moment.clone());
                 (
                     TensorDisposition::QuantizeVq,
                     Some(codebook),
                     Some(indices),
                     calibration_samples,
+                    activation_second_moment,
                 )
             } else {
-                (TensorDisposition::PreserveRaw, None, None, None)
+                (TensorDisposition::PreserveRaw, None, None, None, None)
             };
             tensors.push(PlannedTensor {
                 source_name: tensor.name.clone(),
