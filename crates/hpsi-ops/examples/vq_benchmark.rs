@@ -180,6 +180,45 @@ fn evaluate_quality(weights: &[f32], matrix: &VqMatrix) -> (f64, f64) {
     (relative_l2, f64::from(max_absolute_error))
 }
 
+fn activation_importance() -> Vec<f32> {
+    let mut second_moment = vec![0.0_f32; COLS];
+    for sample in 0..QUALITY_SAMPLES {
+        for (column, value) in second_moment.iter_mut().enumerate() {
+            let gain = if column % 8 == 0 { 8.0 } else { 1.0 };
+            let activation = ((sample as f32 * 0.37 + column as f32 * 0.13).sin()) * gain;
+            *value += activation * activation / QUALITY_SAMPLES as f32;
+        }
+    }
+    second_moment
+}
+
+fn activation_weighted_relative_error(
+    weights: &[f32],
+    matrix: &VqMatrix,
+    importance: &[f32],
+) -> f64 {
+    let groups_per_row = COLS / 8;
+    let mut error_squared = 0.0_f64;
+    let mut reference_squared = 0.0_f64;
+    for (group, source) in weights.chunks_exact(8).enumerate() {
+        let column_start = (group % groups_per_row) * 8;
+        for dimension in 0..8 {
+            let mut reconstructed = 0.0_f32;
+            for stage in 0..matrix.codebook_count() {
+                let selector = group * matrix.codebook_count() + stage;
+                let packed = matrix.packed_indices()[selector / 2];
+                let code = usize::from(if selector % 2 == 0 { packed & 0x0f } else { packed >> 4 });
+                reconstructed += matrix.codebook()[stage * 16 * 8 + code * 8 + dimension];
+            }
+            let difference = f64::from(source[dimension] - reconstructed);
+            let weight = f64::from(importance[column_start + dimension]);
+            error_squared += weight * difference * difference;
+            reference_squared += weight * f64::from(source[dimension]) * f64::from(source[dimension]);
+        }
+    }
+    (error_squared / reference_squared.max(f64::MIN_POSITIVE)).sqrt()
+}
+
 fn make_hpsi_file_reader(
     matrix: &VqMatrix,
     block_rows: usize,
@@ -354,6 +393,21 @@ fn main() {
     let quality8 = evaluate_quality(&weights, &matrix8);
     let quality12 = evaluate_quality(&weights, &matrix12);
     let quality16 = evaluate_quality(&weights, &matrix16);
+    let activation_importance = activation_importance();
+    let activation_start = Instant::now();
+    let activation_matrix = VqMatrix::encode_activation_aware(
+        &weights,
+        ROWS,
+        COLS,
+        VqConfig { codebook_count: 4, ..VqConfig::default() },
+        &activation_importance,
+    )
+    .expect("valid activation-aware synthetic matrix");
+    let activation_encode_ms = activation_start.elapsed().as_secs_f64() * 1_000.0;
+    let ordinary_weighted_error =
+        activation_weighted_relative_error(&weights, &matrix16, &activation_importance);
+    let activation_weighted_error =
+        activation_weighted_relative_error(&weights, &activation_matrix, &activation_importance);
     let input = make_input(0x4245_4e43_484d_4152);
     let dense_latency = measure_dense(&weights, &input);
     let vq4_latency = measure_vq(&matrix4, &input);
@@ -457,6 +511,11 @@ fn main() {
     );
     println!("four_heldout_relative_l2_error: {:.6}", quality16.0);
     println!("four_heldout_max_absolute_error: {:.6}", quality16.1);
+    println!("activation_aware_codebook_count: 4");
+    println!("activation_aware_encode_ms: {activation_encode_ms:.3}");
+    println!("activation_aware_representation_bytes: {}", activation_matrix.stored_bytes());
+    println!("activation_weighted_error_before: {ordinary_weighted_error:.6}");
+    println!("activation_weighted_error_after: {activation_weighted_error:.6}");
     println!("four_direct_matvec_p50_ms: {:.6}", vq16_latency.0);
     println!("four_direct_matvec_p95_ms: {:.6}", vq16_latency.1);
     println!("four_hpsi_32_row_window_p50_ms: {:.6}", hpsi16_latency.0);
