@@ -22,7 +22,6 @@ const MAX_IMPORT_OUTPUT_TENSORS: usize = 250_000;
 const MAX_IMPORT_OUTPUT_BLOCKS: usize = 1_000_000;
 const MAX_IMPORT_BLOCK_BYTES: u64 = 64 * 1024 * 1024;
 
-
 struct ImportSpool {
     path: PathBuf,
     file: Option<std::fs::File>,
@@ -319,13 +318,19 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     .checked_sub(info.data_start)
                     .ok_or(VqError("invalid raw source payload range"))?;
                 if length == 0 {
-                    return Err(VqError("empty raw tensors cannot be emitted as HPSI blocks"));
+                    return Err(VqError(
+                        "empty raw tensors cannot be emitted as HPSI blocks",
+                    ));
                 }
                 let blocks = length
                     .checked_add(COPY_CHUNK_BYTES as u64 - 1)
                     .ok_or(VqError("raw block count overflow"))?
                     / COPY_CHUNK_BYTES as u64;
-                (1usize, usize::try_from(blocks).map_err(|_| VqError("raw block count exceeds address space"))?)
+                (
+                    1usize,
+                    usize::try_from(blocks)
+                        .map_err(|_| VqError("raw block count exceeds address space"))?,
+                )
             }
             TensorDisposition::QuantizeVq => {
                 let rows = usize::try_from(info.shape[0])
@@ -346,7 +351,12 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
                     .checked_add(block_rows - 1)
                     .ok_or(VqError("selector block count overflow"))?
                     / block_rows;
-                (2usize, selector_blocks.checked_add(1).ok_or(VqError("VQ block count overflow"))?)
+                (
+                    2usize,
+                    selector_blocks
+                        .checked_add(1)
+                        .ok_or(VqError("VQ block count overflow"))?,
+                )
             }
         };
         output_tensor_count = output_tensor_count
