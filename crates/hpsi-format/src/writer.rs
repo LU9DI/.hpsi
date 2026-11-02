@@ -44,7 +44,9 @@ impl ModelWriter {
             ));
         }
         let mut names = Vec::new();
-        names.try_reserve_exact(tensors.len()).map_err(|_| FormatError::LimitExceeded("writer tensor names"))?;
+        names
+            .try_reserve_exact(tensors.len())
+            .map_err(|_| FormatError::LimitExceeded("writer tensor names"))?;
         let mut name_set = std::collections::HashSet::new();
         let mut previous_id = None;
         let mut block_count = 0usize;
@@ -96,20 +98,33 @@ impl ModelWriter {
                 .map_err(|e| FormatError::Io(e.to_string()))?;
         let metadata_off = 128u64;
         let tensor_off = align8(metadata_off + metadata.len() as u64)?;
-        let tensor_len = u64::try_from(tensors.len()).map_err(|_| FormatError::LimitExceeded("tensor directory length"))?.checked_mul(128).ok_or(FormatError::ArithmeticOverflow("tensor directory length"))?;
+        let tensor_len = u64::try_from(tensors.len())
+            .map_err(|_| FormatError::LimitExceeded("tensor directory length"))?
+            .checked_mul(128)
+            .ok_or(FormatError::ArithmeticOverflow("tensor directory length"))?;
         let block_off = align8(
             tensor_off
                 .checked_add(tensor_len)
                 .ok_or(FormatError::ArithmeticOverflow("tensor directory"))?,
         )?;
-        let block_len = u64::try_from(block_count).map_err(|_| FormatError::LimitExceeded("block directory length"))?.checked_mul(64).ok_or(FormatError::ArithmeticOverflow("block directory length"))?;
+        let block_len = u64::try_from(block_count)
+            .map_err(|_| FormatError::LimitExceeded("block directory length"))?
+            .checked_mul(64)
+            .ok_or(FormatError::ArithmeticOverflow("block directory length"))?;
         let integrity_off = align8(
             block_off
                 .checked_add(block_len)
                 .ok_or(FormatError::ArithmeticOverflow("block directory"))?,
         )?;
-        let integrity_count = block_count.checked_add(1).ok_or(FormatError::ArithmeticOverflow("integrity count"))?;
-        let integrity_len = u64::try_from(integrity_count).map_err(|_| FormatError::LimitExceeded("integrity directory length"))?.checked_mul(32).ok_or(FormatError::ArithmeticOverflow("integrity directory length"))?;
+        let integrity_count = block_count
+            .checked_add(1)
+            .ok_or(FormatError::ArithmeticOverflow("integrity count"))?;
+        let integrity_len = u64::try_from(integrity_count)
+            .map_err(|_| FormatError::LimitExceeded("integrity directory length"))?
+            .checked_mul(32)
+            .ok_or(FormatError::ArithmeticOverflow(
+                "integrity directory length",
+            ))?;
         let payload_off = align8(
             integrity_off
                 .checked_add(integrity_len)
@@ -120,16 +135,32 @@ impl ModelWriter {
             .ok_or(FormatError::ArithmeticOverflow("file size"))?;
 
         let mut tensor_dir = Vec::new();
-        tensor_dir.try_reserve_exact(usize::try_from(tensor_len).map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?).map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?;
+        tensor_dir
+            .try_reserve_exact(
+                usize::try_from(tensor_len)
+                    .map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?,
+            )
+            .map_err(|_| FormatError::LimitExceeded("tensor directory allocation"))?;
         let mut block_dir = Vec::new();
-        block_dir.try_reserve_exact(usize::try_from(block_len).map_err(|_| FormatError::LimitExceeded("block directory allocation"))?).map_err(|_| FormatError::LimitExceeded("block directory allocation"))?;
+        block_dir
+            .try_reserve_exact(
+                usize::try_from(block_len)
+                    .map_err(|_| FormatError::LimitExceeded("block directory allocation"))?,
+            )
+            .map_err(|_| FormatError::LimitExceeded("block directory allocation"))?;
         let mut integrity_dir = Vec::new();
-        integrity_dir.try_reserve_exact(usize::try_from(integrity_len).map_err(|_| FormatError::LimitExceeded("integrity directory allocation"))?).map_err(|_| FormatError::LimitExceeded("integrity directory allocation"))?;
+        integrity_dir
+            .try_reserve_exact(
+                usize::try_from(integrity_len)
+                    .map_err(|_| FormatError::LimitExceeded("integrity directory allocation"))?,
+            )
+            .map_err(|_| FormatError::LimitExceeded("integrity directory allocation"))?;
         let mut payload_pos = payload_off;
         let mut global_block = 0u32;
         for (name_ref, t) in tensors.iter().enumerate() {
             let logical = t.blocks.iter().try_fold(0u64, |sum, block| {
-                sum.checked_add(block.bytes.len() as u64).ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
+                sum.checked_add(block.bytes.len() as u64)
+                    .ok_or(FormatError::ArithmeticOverflow("tensor logical bytes"))
             })?;
             validate_shape(t.dtype, &t.dimensions, logical)?;
             let mut e = [0u8; 128];
@@ -164,8 +195,12 @@ impl ModelWriter {
                 put16(&mut ir, 8, 1);
                 put32(&mut ir, 12, crc32c(&b.bytes));
                 integrity_dir.extend_from_slice(&ir);
-                logical_pos = logical_pos.checked_add(b.bytes.len() as u64).ok_or(FormatError::ArithmeticOverflow("logical block offset"))?;
-                payload_pos = payload_pos.checked_add(b.bytes.len() as u64).ok_or(FormatError::ArithmeticOverflow("payload offset"))?;
+                logical_pos = logical_pos
+                    .checked_add(b.bytes.len() as u64)
+                    .ok_or(FormatError::ArithmeticOverflow("logical block offset"))?;
+                payload_pos = payload_pos
+                    .checked_add(b.bytes.len() as u64)
+                    .ok_or(FormatError::ArithmeticOverflow("payload offset"))?;
                 global_block += 1;
             }
         }
