@@ -81,6 +81,12 @@ Tensor names are referenced by `name_ref` in the tensor directory. Duplicate nam
 
 The parser must enforce configured maximum metadata bytes, JSON nesting depth, string length, array length, and object member count. Unknown JSON properties are ignored only in descriptive objects. Unknown required top-level properties are not allowed in v0.1. Metadata is data, never executable code.
 
+### 4.1 Importer descriptive provenance
+
+The Safetensors importer may add a descriptive `user.source_tensors` array. Each entry identifies the source tensor by `name` and may include `source_dtype`, `source_shape`, and `disposition`. The provenance-aware calibrated importer may additionally include a `calibration` object on a quantized source tensor. Its fields are `model_type`, optional `model_revision`, `dataset_sha256`, `sample_count`, `features`, and `statistic`. The current statistic identifier is `diagonal_second_moment`.
+
+This is importer-specific descriptive metadata, not a tensor-directory extension. Readers that do not understand calibration provenance may ignore it while preserving the metadata object. The calibration moment vector is not required in the manifest; it is an encoding input and is not copied into the artifact metadata. Raw-preserved tensors must not carry a calibration object. Older artifacts without this object remain valid.
+
 The writer should emit deterministic JSON (stable key ordering and no insignificant whitespace) to support reproducible artifacts.
 
 ## 5. Tensor directory — 128-byte entries
