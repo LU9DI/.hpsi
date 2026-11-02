@@ -213,7 +213,11 @@ pub fn write_model_import_to_hpsi<W: Write + Seek>(
     // The plan is sorted by source name. Build one sorted reference index so
     // validation and emission resolve each source tensor in O(log n), rather
     // than rescanning the complete source directory for every planned tensor.
-    let mut source_by_name: Vec<_> = source.tensors().iter().collect();
+    let mut source_by_name = Vec::new();
+    source_by_name
+        .try_reserve_exact(source.tensors().len())
+        .map_err(|_| VqError("could not reserve sorted source tensor index"))?;
+    source_by_name.extend(source.tensors().iter());
     source_by_name.sort_unstable_by(|left, right| left.name.cmp(&right.name));
     let mut planned_names = HashSet::new();
     planned_names
