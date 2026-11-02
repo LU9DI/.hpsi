@@ -101,3 +101,22 @@ into the HPSI container. This avoids retaining the complete packed selector
 matrix in RAM. The spool is caller-owned so applications can choose an in-memory
 cursor for small inputs or a temporary file for large models. Dense source
 weights are still read through bounded windows.
+
+
+## Direct Safetensors-to-HPSI import
+
+`SafeTensorFile::encode_f32_tensor_to_hpsi` now connects a rank-2
+`F32`, `F16`, or `BF16` Safetensors tensor directly to the VQ encoder
+and HPSI streaming writer. The caller supplies the tensor name, VQ settings,
+and selector block row count; no custom reader closure or spool management
+is required.
+
+The convenience path creates a unique disk-backed selector spool with
+exclusive file creation and removes it after use. The spool is explicitly
+closed before cleanup for Windows compatibility. Source windows remain
+bounded, selector transfer uses a 64 KiB buffer, and the HPSI writer rejects
+callbacks that attempt to write beyond a block's declared length.
+
+The direct import currently handles rank-2 floating tensors. It does not yet
+perform a whole-model conversion across every tensor or persist calibration
+metadata; those are separate pipeline steps.
