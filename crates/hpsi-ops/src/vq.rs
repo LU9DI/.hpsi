@@ -36,6 +36,22 @@ impl std::fmt::Display for VqError {
 }
 impl std::error::Error for VqError {}
 
+/// Return the number of packed 4-bit selectors in one matrix row.
+/// Rows are independently addressable in HPSI blocks, so each row must end
+/// on a byte boundary (an even number of selectors).
+fn selectors_per_row(cols: usize, codebook_count: usize) -> Result<usize, VqError> {
+    if cols == 0 || cols % GROUP_SIZE != 0 || !(1..=4).contains(&codebook_count) {
+        return Err(VqError("matrix columns or codebook count are invalid"));
+    }
+    let selectors = (cols / GROUP_SIZE)
+        .checked_mul(codebook_count)
+        .ok_or(VqError("selector count per row overflow"))?;
+    if selectors % 2 != 0 {
+        return Err(VqError("each matrix row must contain an even selector count"));
+    }
+    Ok(selectors)
+}
+
 /// Matrix represented by packed 4-bit selectors into one through four additive codebooks.
 /// Runtime multiplication consumes the representation directly.
 #[derive(Debug, Clone)]
@@ -124,6 +140,7 @@ impl VqMatrix {
             }
         }
 
+        selectors_per_row(cols, config.codebook_count)?;
         let group_count = expected / GROUP_SIZE;
         let sample_count = group_count.min(config.sample_limit);
         let mut samples = Vec::with_capacity(sample_count);
@@ -239,15 +256,10 @@ impl VqMatrix {
         if codebook_tensor_id >= indices_tensor_id {
             return Err(VqError("codebook tensor ID must precede index tensor ID"));
         }
-        if block_rows == 0 || self.cols % 16 != 0 {
-            return Err(VqError(
-                "row-streamed export requires positive block rows and columns divisible by 16",
-            ));
+        if block_rows == 0 {
+            return Err(VqError("row-streamed export requires positive block rows"));
         }
-        let groups_per_row = self.cols / GROUP_SIZE;
-        let selectors_per_row = groups_per_row
-            .checked_mul(self.codebook_count)
-            .ok_or(VqError("selector count per row overflow"))?;
+        let selectors_per_row = selectors_per_row(self.cols, self.codebook_count)?;
         let bytes_per_row = selectors_per_row / 2;
         let index_block_bytes = bytes_per_row
             .checked_mul(block_rows)
@@ -298,12 +310,10 @@ impl<'a> VqMatrixView<'a> {
         codebook: &'a [f32],
         packed_indices: &'a [u8],
     ) -> Result<Self, VqError> {
-        if rows == 0 || cols == 0 || cols % GROUP_SIZE != 0 {
-            return Err(VqError("matrix shape must be non-zero and group-aligned"));
+        if rows == 0 {
+            return Err(VqError("matrix row count must be non-zero"));
         }
-        if !(1..=4).contains(&codebook_count) {
-            return Err(VqError("only one through four codebooks are supported"));
-        }
+        selectors_per_row(cols, codebook_count)?;
         if codebook.len() != CODEBOOK_VALUES * codebook_count
             || codebook.iter().any(|value| !value.is_finite())
         {
@@ -436,11 +446,10 @@ impl<'a> HpsiVqExecutor<'a> {
             cols,
             codebook_count,
         } = layout;
-        if rows == 0 || cols == 0 || cols % 16 != 0 || !(1..=4).contains(&codebook_count) {
-            return Err(VqError(
-                "HPSI VQ layout has invalid shape or codebook count",
-            ));
+        if rows == 0 {
+            return Err(VqError("HPSI VQ layout has invalid row count"));
         }
+        selectors_per_row(cols, codebook_count)?;
 
         let codebook_tensor = reader
             .tensor(codebook_tensor_id)
@@ -476,11 +485,7 @@ impl<'a> HpsiVqExecutor<'a> {
             return Err(VqError("HPSI codebook contains non-finite values"));
         }
 
-        let groups_per_row = cols / GROUP_SIZE;
-        let selectors_per_row = groups_per_row
-            .checked_mul(codebook_count)
-            .ok_or(VqError("selector count per row overflow"))?;
-        let bytes_per_row = selectors_per_row / 2;
+        let bytes_per_row = selectors_per_row(cols, codebook_count)? / 2;
         let expected_index_bytes = rows
             .checked_mul(bytes_per_row)
             .ok_or(VqError("HPSI index tensor size overflow"))?;
