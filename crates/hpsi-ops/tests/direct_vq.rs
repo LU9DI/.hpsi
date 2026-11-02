@@ -273,6 +273,7 @@ fn residual_codebooks_handle_sparse_samples_deterministically() {
         codebook_count: 4,
         iterations: 16,
         sample_limit: 64,
+        beam_width: 8,
     };
     let first = VqMatrix::encode(&weights, 1, 8, config).unwrap();
     let second = VqMatrix::encode(&weights, 1, 8, config).unwrap();
