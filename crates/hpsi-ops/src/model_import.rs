@@ -213,7 +213,6 @@ impl ModelImportPlan {
     }
 }
 
-
 /// Compact calibration provenance persisted in HPSI metadata. Numeric moments
 /// remain in the import plan for encoding and are deliberately not serialized.
 #[derive(Debug, Clone, PartialEq, Eq)]
