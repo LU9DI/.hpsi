@@ -482,6 +482,7 @@ fn validate_reference_cycles(
         .try_reserve_exact(tensors.len())
         .map_err(|_| FormatError::LimitExceeded("reference graph allocation failed"))?;
     edges.resize_with(tensors.len(), Vec::<usize>::new);
+
     for (index, tensor) in tensors.iter().enumerate() {
         if let Some(reference) = tensor.representation_ref {
             let target = u32::try_from(reference)
@@ -490,11 +491,21 @@ fn validate_reference_cycles(
                 .ok_or(FormatError::InvalidReference(
                     "tensor representation reference is missing",
                 ))?;
+            edges[index]
+                .try_reserve(1)
+                .map_err(|_| FormatError::LimitExceeded("reference edge allocation failed"))?;
             edges[index].push(target);
         }
-        let start = tensor.first_block_index as usize;
-        let end = start + tensor.block_count as usize;
-        for block in &blocks[start..end] {
+
+        let start = usize::try_from(tensor.first_block_index)
+            .map_err(|_| FormatError::InvalidDirectory("reference block index exceeds address space"))?;
+        let end = start
+            .checked_add(tensor.block_count as usize)
+            .ok_or(FormatError::ArithmeticOverflow("reference block range"))?;
+        let tensor_blocks = blocks.get(start..end).ok_or(FormatError::InvalidDirectory(
+            "reference block range exceeds directory",
+        ))?;
+        for block in tensor_blocks {
             if let Some(reference) = block.auxiliary_ref {
                 let target = u32::try_from(reference)
                     .ok()
@@ -502,54 +513,66 @@ fn validate_reference_cycles(
                     .ok_or(FormatError::InvalidReference(
                         "block auxiliary reference is missing",
                     ))?;
+                edges[index]
+                    .try_reserve(1)
+                    .map_err(|_| FormatError::LimitExceeded("reference edge allocation failed"))?;
                 edges[index].push(target);
             }
         }
     }
 
+    validate_acyclic_graph(&edges)
+}
+
+fn validate_acyclic_graph(edges: &[Vec<usize>]) -> Result<()> {
+    // 0 = unseen, 1 = active DFS path, 2 = fully processed.
+    // Keep the next-edge cursor in each frame so converging edges are not
+    // mistaken for cycles merely because a node was queued more than once.
     let mut color = Vec::new();
     color
-        .try_reserve_exact(tensors.len())
+        .try_reserve_exact(edges.len())
         .map_err(|_| FormatError::LimitExceeded("reference traversal allocation failed"))?;
-    color.resize(tensors.len(), 0_u8);
-    for start in 0..tensors.len() {
+    color.resize(edges.len(), 0_u8);
+
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    for start in 0..edges.len() {
         if color[start] != 0 {
             continue;
         }
-        let mut stack = Vec::new();
-        stack.try_reserve(1).map_err(|_| {
-            FormatError::LimitExceeded("reference traversal stack allocation failed")
-        })?;
-        stack.push((start, false));
-        while let Some((node, exiting)) = stack.pop() {
-            if exiting {
-                color[node] = 2;
+        color[start] = 1;
+        stack
+            .try_reserve(1)
+            .map_err(|_| FormatError::LimitExceeded("reference traversal stack allocation failed"))?;
+        stack.push((start, 0));
+
+        while let Some((node, next_edge)) = stack.last_mut() {
+            if *next_edge == edges[*node].len() {
+                let finished = *node;
+                stack.pop();
+                color[finished] = 2;
                 continue;
             }
-            if color[node] == 1 {
+
+            let dependency = edges[*node][*next_edge];
+            *next_edge += 1;
+            if dependency >= edges.len() {
                 return Err(FormatError::InvalidReference(
-                    "cyclic auxiliary tensor references",
+                    "reference graph target is out of range",
                 ));
             }
-            if color[node] == 2 {
-                continue;
-            }
-            color[node] = 1;
-            stack.try_reserve(1).map_err(|_| {
-                FormatError::LimitExceeded("reference traversal stack allocation failed")
-            })?;
-            stack.push((node, true));
-            for dependency in &edges[node] {
-                if color[*dependency] == 1 {
+            match color[dependency] {
+                1 => {
                     return Err(FormatError::InvalidReference(
                         "cyclic auxiliary tensor references",
                     ));
                 }
-                if color[*dependency] == 0 {
+                2 => {}
+                _ => {
+                    color[dependency] = 1;
                     stack.try_reserve(1).map_err(|_| {
                         FormatError::LimitExceeded("reference traversal stack allocation failed")
                     })?;
-                    stack.push((*dependency, false));
+                    stack.push((dependency, 0));
                 }
             }
         }
@@ -585,6 +608,32 @@ impl Crc32c {
 #[cfg(test)]
 mod tests {
     use super::Crc32c;
+
+    #[test]
+    fn reference_graph_accepts_duplicate_and_converging_edges() {
+        let edges = vec![vec![1, 1, 2], vec![3], vec![3], vec![]];
+        assert!(super::validate_acyclic_graph(&edges).is_ok());
+    }
+
+    #[test]
+    fn reference_graph_rejects_direct_and_indirect_cycles() {
+        assert!(matches!(
+            super::validate_acyclic_graph(&[vec![0]]),
+            Err(crate::FormatError::InvalidReference(_))
+        ));
+        assert!(matches!(
+            super::validate_acyclic_graph(&[vec![1], vec![2], vec![0]]),
+            Err(crate::FormatError::InvalidReference(_))
+        ));
+    }
+
+    #[test]
+    fn reference_graph_rejects_out_of_range_targets() {
+        assert!(matches!(
+            super::validate_acyclic_graph(&[vec![1]]),
+            Err(crate::FormatError::InvalidReference(_))
+        ));
+    }
 
     #[test]
     fn crc32c_uses_castagnoli_polynomial() {
