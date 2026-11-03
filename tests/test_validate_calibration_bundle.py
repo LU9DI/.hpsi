@@ -108,6 +108,29 @@ class CalibrationBundleValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "dataset metadata must be an object"):
                 MODULE.validate_bundle(root)
 
+
+    def test_rejects_boolean_layer_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["captured_layers"] = True
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "captured_layers does not match"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_boolean_artifact_sequence_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+            artifact["dataset"]["processed_sequences"] = True
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "processed sequence count mismatch"):
+                MODULE.validate_bundle(root)
+
     def test_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
