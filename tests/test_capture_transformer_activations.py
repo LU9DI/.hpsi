@@ -31,5 +31,17 @@ class CaptureUtilityTests(unittest.TestCase):
             self.assertEqual(MODULE.sha256_file(path), hashlib.sha256(payload).hexdigest())
 
 
+    def test_rejects_duplicate_jsonl_object_keys(self):
+        with self.assertRaisesRegex(ValueError, "line 7: invalid strict JSON: duplicate JSON object key: text"):
+            MODULE.parse_jsonl_record('{"text":"first","text":"second"}', 7)
+
+    def test_rejects_nonstandard_jsonl_numeric_constants(self):
+        with self.assertRaisesRegex(ValueError, "line 3: invalid strict JSON: non-standard JSON numeric constant: NaN"):
+            MODULE.parse_jsonl_record('{"text":"hello","score":NaN}', 3)
+
+    def test_rejects_non_object_jsonl_records_without_attribute_error(self):
+        self.assertEqual(MODULE.parse_jsonl_record('["not", "a", "record"]', 2), ["not", "a", "record"])
+
+
 if __name__ == "__main__":
     unittest.main()
