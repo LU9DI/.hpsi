@@ -187,5 +187,40 @@ class CalibrationBundleValidationTests(unittest.TestCase):
 
 
 
+    def test_rejects_duplicate_json_object_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "manifest.json"
+            raw = path.read_text(encoding="utf-8")
+            raw = raw.replace('"version": 1,', '"version": 1, "version": 1,', 1)
+            path.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "duplicate JSON object key: version"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_nonstandard_json_numeric_constants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            raw = path.read_text(encoding="utf-8")
+            raw = raw.replace('"activation_second_moment": [0.25, 1.0, 2.25]',
+                              '"activation_second_moment": [0.25, NaN, 2.25]')
+            path.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "non-standard JSON numeric constant: NaN"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_uppercase_dataset_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["dataset_sha256"] = "A" * 64
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "lowercase hexadecimal"):
+                MODULE.validate_bundle(root)
+
+
 if __name__ == "__main__":
     unittest.main()
