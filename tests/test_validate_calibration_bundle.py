@@ -143,5 +143,40 @@ class CalibrationBundleValidationTests(unittest.TestCase):
                 MODULE.validate_bundle(root)
 
 
+    def test_rejects_boolean_manifest_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["version"] = True
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "unsupported manifest version"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_boolean_artifact_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+            artifact["version"] = True
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "unsupported artifact version"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_boolean_manifest_sample_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["layers"][0]["sample_count"] = True
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "manifest sample count mismatch"):
+                MODULE.validate_bundle(root)
+
+
+
 if __name__ == "__main__":
     unittest.main()
