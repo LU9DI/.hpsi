@@ -109,7 +109,11 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
                 f"{name}: manifest feature count mismatch")
         for index, value in enumerate(moments):
             require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{name}: moment {index} is not numeric")
-            require(math.isfinite(value) and value >= 0, f"{name}: moment {index} must be finite and non-negative")
+            try:
+                finite = math.isfinite(value)
+            except OverflowError:
+                finite = False
+            require(finite and value >= 0, f"{name}: moment {index} must be finite and non-negative")
         total_samples += count
 
     return {
