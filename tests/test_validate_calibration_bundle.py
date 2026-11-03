@@ -178,5 +178,14 @@ class CalibrationBundleValidationTests(unittest.TestCase):
 
 
 
+    def test_rejects_integer_moment_too_large_for_finite_float(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root, [10 ** 10000])
+            with self.assertRaisesRegex(ValueError, "finite and non-negative"):
+                MODULE.validate_bundle(root)
+
+
+
 if __name__ == "__main__":
     unittest.main()
