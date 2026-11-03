@@ -10,11 +10,28 @@ from pathlib import Path
 from typing import Any
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        value[key] = item
+    return value
+
+
+def _reject_nonstandard_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
 def load_json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{path.name}: cannot read valid UTF-8 JSON") from exc
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonstandard_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"{path.name}: cannot read strict UTF-8 JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{path.name}: expected a JSON object")
     return value
@@ -47,7 +64,8 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
     require(revision is None or isinstance(revision, str), "manifest model_revision must be a string or null")
     dataset_hash = manifest.get("dataset_sha256")
     require(isinstance(dataset_hash, str) and len(dataset_hash) == 64, "manifest dataset_sha256 is invalid")
-    require(all(c in "0123456789abcdef" for c in dataset_hash.lower()), "manifest dataset_sha256 is not hexadecimal")
+    require(all(c in "0123456789abcdef" for c in dataset_hash),
+            "manifest dataset_sha256 must be lowercase hexadecimal")
     if dataset is not None:
         require(dataset.is_file(), "dataset file does not exist")
         require(sha256_file(dataset) == dataset_hash, "dataset SHA-256 does not match calibration manifest")
