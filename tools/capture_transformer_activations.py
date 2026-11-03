@@ -14,6 +14,30 @@ from pathlib import Path
 from typing import Any
 
 
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        value[key] = item
+    return value
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
+def parse_jsonl_record(line: str, line_number: int) -> Any:
+    try:
+        return json.loads(
+            line,
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"line {line_number}: invalid strict JSON: {exc}") from exc
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -128,8 +152,10 @@ def main() -> int:
                     break
                 if not line.strip():
                     continue
-                record = json.loads(line)
-                text = record if isinstance(record, str) else record.get("text")
+                record = parse_jsonl_record(line, line_number)
+                text = record if isinstance(record, str) else (
+                    record.get("text") if isinstance(record, dict) else None
+                )
                 if not isinstance(text, str) or not text.strip():
                     raise ValueError(f"line {line_number}: expected a non-empty string or object.text")
                 encoded = tokenizer(
