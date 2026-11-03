@@ -53,6 +53,9 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
     layers = manifest.get("layers")
     require(isinstance(layers, list) and layers, "manifest has no captured layers")
     require(manifest.get("captured_layers") == len(layers), "captured_layers does not match layers length")
+    processed_sequences = manifest.get("processed_sequences")
+    require(isinstance(processed_sequences, int) and not isinstance(processed_sequences, bool) and processed_sequences > 0,
+            "manifest processed_sequences must be a positive integer")
     seen_names: set[str] = set()
     seen_files: set[str] = set()
     total_samples = 0
@@ -72,17 +75,28 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
         require(artifact.get("version") == 1, f"{name}: unsupported artifact version")
         require(artifact.get("layer_name") == name, f"{name}: layer name mismatch")
         require(artifact.get("statistic") == "diagonal_second_moment", f"{name}: unsupported statistic")
-        require(artifact.get("model", {}).get("model_type") == model_type, f"{name}: model_type mismatch")
-        require(artifact.get("model", {}).get("revision") == revision, f"{name}: model revision mismatch")
+        artifact_model = artifact.get("model")
+        require(isinstance(artifact_model, dict), f"{name}: model metadata must be an object")
+        require(artifact_model.get("model_type") == model_type, f"{name}: model_type mismatch")
+        require(artifact_model.get("revision") == revision, f"{name}: model revision mismatch")
+        artifact_dataset = artifact.get("dataset")
+        require(isinstance(artifact_dataset, dict), f"{name}: dataset metadata must be an object")
+        require(artifact_dataset.get("sha256") == dataset_hash, f"{name}: dataset SHA-256 mismatch")
+        require(artifact_dataset.get("processed_sequences") == processed_sequences,
+                f"{name}: processed sequence count mismatch")
         moments = artifact.get("activation_second_moment")
         shape = artifact.get("shape")
         count = artifact.get("sample_count")
         require(isinstance(moments, list) and moments, f"{name}: activation moments are empty")
-        require(isinstance(shape, list) and len(shape) == 2, f"{name}: shape must have two dimensions")
+        require(isinstance(shape, list) and len(shape) == 2
+                and all(isinstance(dimension, int) and not isinstance(dimension, bool) and dimension > 0
+                        for dimension in shape), f"{name}: shape must contain two positive integer dimensions")
         require(shape[0] == count and shape[1] == len(moments), f"{name}: shape does not match sample count and feature count")
         require(isinstance(count, int) and not isinstance(count, bool) and count > 0, f"{name}: sample_count must be positive")
         require(entry.get("sample_count") == count, f"{name}: manifest sample count mismatch")
-        require(entry.get("features") == len(moments), f"{name}: manifest feature count mismatch")
+        features = entry.get("features")
+        require(isinstance(features, int) and not isinstance(features, bool) and features == len(moments),
+                f"{name}: manifest feature count mismatch")
         for index, value in enumerate(moments):
             require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{name}: moment {index} is not numeric")
             require(math.isfinite(value) and value >= 0, f"{name}: moment {index} must be finite and non-negative")
