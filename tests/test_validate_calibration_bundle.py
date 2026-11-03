@@ -20,6 +20,7 @@ class CalibrationBundleValidationTests(unittest.TestCase):
             "version": 1,
             "layer_name": "model.layers.0.mlp.up_proj.weight",
             "model": {"model_type": "fixture", "revision": "abc123"},
+            "dataset": {"sha256": "a" * 64, "processed_sequences": 2},
             "statistic": "diagonal_second_moment",
             "shape": [8, len(moments)],
             "sample_count": 8,
@@ -32,6 +33,7 @@ class CalibrationBundleValidationTests(unittest.TestCase):
             "model_type": "fixture",
             "model_revision": "abc123",
             "dataset_sha256": "a" * 64,
+            "processed_sequences": 2,
             "captured_layers": 1,
             "layers": [{
                 "module_name": "model.layers.0.mlp.up_proj",
@@ -70,6 +72,40 @@ class CalibrationBundleValidationTests(unittest.TestCase):
             artifact["shape"] = [8, 99]
             artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "shape does not match"):
+                MODULE.validate_bundle(root)
+
+
+    def test_rejects_malformed_model_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+            artifact["model"] = ["not", "an", "object"]
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "model metadata must be an object"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_dataset_provenance_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+            artifact["dataset"]["sha256"] = "b" * 64
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "dataset SHA-256 mismatch"):
+                MODULE.validate_bundle(root)
+
+    def test_rejects_malformed_dataset_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_bundle(root)
+            path = root / "0000_layer.json"
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+            artifact["dataset"] = None
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "dataset metadata must be an object"):
                 MODULE.validate_bundle(root)
 
     def test_rejects_path_traversal(self):
