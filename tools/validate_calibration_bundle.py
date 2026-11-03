@@ -52,7 +52,9 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
 
     layers = manifest.get("layers")
     require(isinstance(layers, list) and layers, "manifest has no captured layers")
-    require(manifest.get("captured_layers") == len(layers), "captured_layers does not match layers length")
+    captured_layers = manifest.get("captured_layers")
+    require(isinstance(captured_layers, int) and not isinstance(captured_layers, bool)
+            and captured_layers == len(layers), "captured_layers does not match layers length")
     processed_sequences = manifest.get("processed_sequences")
     require(isinstance(processed_sequences, int) and not isinstance(processed_sequences, bool) and processed_sequences > 0,
             "manifest processed_sequences must be a positive integer")
@@ -82,7 +84,9 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
         artifact_dataset = artifact.get("dataset")
         require(isinstance(artifact_dataset, dict), f"{name}: dataset metadata must be an object")
         require(artifact_dataset.get("sha256") == dataset_hash, f"{name}: dataset SHA-256 mismatch")
-        require(artifact_dataset.get("processed_sequences") == processed_sequences,
+        artifact_sequences = artifact_dataset.get("processed_sequences")
+        require(isinstance(artifact_sequences, int) and not isinstance(artifact_sequences, bool)
+                and artifact_sequences == processed_sequences,
                 f"{name}: processed sequence count mismatch")
         moments = artifact.get("activation_second_moment")
         shape = artifact.get("shape")
