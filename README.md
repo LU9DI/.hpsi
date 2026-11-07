@@ -698,3 +698,17 @@ cargo run -p hpsi-cli -- safetensors-import ./models/model.safetensors ./artifac
 
 The command verifies the completed HPSI file before publishing it and never overwrites an existing destination. Raw preservation is the default for tensors outside VQ eligibility; pass `--reject-raw` to require every source tensor to be VQ-quantizable.
 
+
+## License
+
+HPSI is dual-licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. Third-party notices, including the Unicode License V3 required
+by `unicode-ident`, are recorded in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual-licensed as above, without any additional terms or conditions.
