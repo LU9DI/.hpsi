@@ -6,14 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The formatter may push a commit. Serialize runs per ref so concurrent
-# formatter jobs cannot race while updating the same feature branch.
+# Serialize runs per ref so concurrent runs on the same branch do not overlap.
 concurrency:
   group: hpsi-ci-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   python-capture-tools:
@@ -29,38 +28,8 @@ jobs:
         run: python -m py_compile tools/capture_transformer_activations.py
       - name: Test capture utility helpers
         run: python -m unittest discover -s tests -p "test_*.py"
-  format:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout feature branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.85.0
-          components: rustfmt
-
-      - name: Format Rust sources
-        run: cargo fmt --all
-
-      - name: Commit formatting changes
-        run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -u
-            git commit -m "style: format Rust sources"
-            git push
-          fi
-
   rust:
     name: Rust checks (${{ matrix.os }})
-    needs: format
-    if: always() && (needs.format.result == 'success' || needs.format.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
