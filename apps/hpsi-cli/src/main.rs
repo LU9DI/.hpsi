@@ -28,6 +28,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(usage());
     };
+    if command == "--help" || command == "-h" {
+        print!("{}", help());
+        return Ok(());
+    }
+    if command == "--version" || command == "-V" {
+        println!("hpsi {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if command == "safetensors-import" {
         return import_safetensors_command(&args);
     }
@@ -353,6 +361,14 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
 
 fn usage() -> String {
     "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors> | hpsi safetensors-import <model.safetensors> <output.hpsi> [--calibration-dir <dir>] [--reject-raw]".to_owned()
+}
+
+fn help() -> String {
+    format!(
+        "hpsi {}\n\n{}\n\nCommands:\n  inspect              Inspect a container's tensor and block directories\n  verify               Verify the container's integrity records\n  calibrate            Compute a calibration document from an activation tensor\n  safetensors-inspect  Inspect a Safetensors header\n  safetensors-import   Import a Safetensors model into an HPSI container\n\nOptions:\n  -h, --help     Print this help\n  -V, --version  Print the version\n",
+        env!("CARGO_PKG_VERSION"),
+        usage()
+    )
 }
 
 #[cfg(test)]
