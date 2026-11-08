@@ -5,6 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+description = "Command-line interface to inspect, verify, calibrate and import HPSI v0.1 containers."
 readme = "../../README.md"
 
 [[bin]]
