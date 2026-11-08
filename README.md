@@ -699,6 +699,41 @@ cargo run -p hpsi-cli -- safetensors-import ./models/model.safetensors ./artifac
 The command verifies the completed HPSI file before publishing it and never overwrites an existing destination. Raw preservation is the default for tensors outside VQ eligibility; pass `--reject-raw` to require every source tensor to be VQ-quantizable.
 
 
+## Building and installing the CLI
+
+Requirements: Rust 1.85.0 (pinned in `rust-toolchain.toml`) and Cargo.
+
+```sh
+# from the repository root
+cargo build --release -p hpsi-cli
+# binary: target/release/hpsi (hpsi.exe on Windows)
+
+# isolated install into a local prefix, no registry involved
+cargo install --path apps/hpsi-cli --locked --root ./hpsi-install
+./hpsi-install/bin/hpsi inspect model.hpsi
+```
+
+The CLI prints its usage when invoked without a recognized command. The exit
+code is `0` on success and non-zero on error; diagnostics are written to stderr
+as `hpsi: <message>`. The `--help` and `--version` flags are **not implemented
+in v0.1**; invoke `hpsi` with an invalid command to print the usage line.
+
+## HPSI Toolkit v0.1 — scope and limitations
+
+v0.1 is a **toolkit** for the container, import, verification and audit path,
+not an inference runtime.
+
+- `RAW` (codec 1) is the only codec the reference writer emits and the reader decodes.
+- `ZSTD_FRAME` (codec 2) and `HPSI_CODEBOOK_V1`/`HPSI_LOW_RANK_V1`/`HPSI_LOOKUP_V1`/`HPSI_RESIDUAL_V1` (codecs 3–6) are declared identifiers with **no decoder in v0.1**.
+- `hpsi inspect` and `hpsi verify` do not decompress or decode payloads; `verify` checks structure and CRC32C integrity.
+- The "Mathematical directory" and "Shared assets" container sections are **proposals**, not present in v0.1.
+- VQ/codebook compute (`hpsi-ops`) is an experimental CPU layer; it makes no model-quality or inference claim.
+
+The Python tools under `tools/` are repository scripts (there is no Python
+package). `audit_hpsi_container.py` needs `numpy`; `capture_transformer_activations.py`
+and `eval_hpsi_parity.py` optionally need `torch`/`transformers`. Run
+`python tools/<script>.py --help` for each tool's arguments.
+
 ## License
 
 HPSI is dual-licensed under either of

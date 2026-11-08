@@ -161,6 +161,8 @@ The reader validates that every block in a tensor's declared block range has the
 
 Codec IDs are namespaced 16-bit identifiers. The container parser does not decode codecs.
 
+In v0.1 the reference implementation emits and decodes only `RAW` (codec 1). Codecs 2–6 are declared identifiers with **no decoder in this release**: `inspect` and `verify` validate structure and integrity but never decompress or decode payloads. The "decoder must enforce output limits" requirement for `ZSTD_FRAME` describes a future decoder, not functionality present in v0.1.
+
 | ID | Name | v0.1 meaning |
 |---:|---|---|
 | 0 | INHERIT | Block inherits tensor codec; invalid as tensor default |
