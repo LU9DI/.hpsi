@@ -10,6 +10,6 @@ name = "hpsi"
 path = "src/main.rs"
 
 [dependencies]
-hpsi-format = { path = "../../crates/hpsi-format" }
-hpsi-ops = { path = "../../crates/hpsi-ops" }
+hpsi-format = { workspace = true }
+hpsi-ops = { workspace = true }
 serde_json = "1"
