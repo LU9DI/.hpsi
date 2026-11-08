@@ -9,6 +9,7 @@ edition = "2024"
 rust-version = "1.85.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/LU9DI/.hpsi"
+authors = ["Lucas Bessa de Araujo"]
 
 [workspace.dependencies]
 hpsi-format = { path = "crates/hpsi-format", version = "0.1.0" }
