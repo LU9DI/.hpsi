@@ -1,4 +1,4 @@
-use crate::{VqConfig, VqError, VqMatrix};
+use crate::{VqConfig, VqError, VqMatrix, WeightOrientation};
 use hpsi_format::{RandomAccessSource, WriterStats};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
@@ -165,6 +165,29 @@ fn clone_header_text(value: &str) -> Result<String, SafeTensorError> {
     Ok(cloned)
 }
 
+/// Width in bytes of a floating-point Safetensors scalar; `None` for other dtypes.
+fn float_width(dtype: &str) -> Option<u64> {
+    match dtype {
+        "F32" => Some(4),
+        "F16" | "BF16" => Some(2),
+        _ => None,
+    }
+}
+
+fn bytes_to_f32(dtype: &str, chunk: &[u8]) -> Result<f32, SafeTensorError> {
+    match dtype {
+        "F32" => Ok(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])),
+        "BF16" => Ok(f32::from_bits(
+            u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16,
+        )),
+        "F16" => Ok(f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]]))),
+        _ => Err(SafeTensorError::UnsupportedDtype),
+    }
+}
+
+/// Storage bytes per in-feature column tile loaded by [`TransposedFloatReader`].
+const TRANSPOSED_TILE_BYTES: u64 = 4 * 1024 * 1024;
+
 impl SafeTensorFile {
     pub fn open(
         source: Arc<dyn RandomAccessSource>,
@@ -312,12 +335,16 @@ impl SafeTensorFile {
     /// Quantize a rank-2 F32/F16/BF16 Safetensors tensor and write it
     /// directly into an HPSI container. Source reads are bounded to samples
     /// and one row; packed selectors are spooled to a managed temporary file.
-    pub fn encode_f32_tensor_to_hpsi<W: Write + Seek>(
+    ///
+    /// `weight_orientation` declares the source layout explicitly; the logical
+    /// matrix presented to the encoder is always `[out_features, in_features]`.
+    pub fn encode_f32_tensor_to_hpsi_oriented<W: Write + Seek>(
         &self,
         tensor_name: &str,
         output: &mut W,
         config: VqConfig,
         block_rows: usize,
+        weight_orientation: WeightOrientation,
     ) -> Result<WriterStats, VqError> {
         let tensor = self
             .tensor_by_name(tensor_name)
@@ -327,20 +354,71 @@ impl SafeTensorFile {
                 "HPSI VQ import requires a rank-2 F32, F16, or BF16 tensor",
             ));
         }
-        let rows = usize::try_from(tensor.shape[0])
+        let (rows, cols) = match weight_orientation {
+            WeightOrientation::LinearOutIn => (tensor.shape[0], tensor.shape[1]),
+            WeightOrientation::Conv1DInOut => (tensor.shape[1], tensor.shape[0]),
+        };
+        let rows = usize::try_from(rows)
             .map_err(|_| VqError("Safetensors row count exceeds address space"))?;
-        let cols = usize::try_from(tensor.shape[1])
+        let cols = usize::try_from(cols)
             .map_err(|_| VqError("Safetensors column count exceeds address space"))?;
-        VqMatrix::encode_from_reader_to_hpsi_with_temp_spool(
+        match weight_orientation {
+            WeightOrientation::LinearOutIn => VqMatrix::encode_from_reader_to_hpsi_with_temp_spool(
+                output,
+                rows,
+                cols,
+                config,
+                block_rows,
+                |first, count| {
+                    self.read_f32_elements(tensor_name, first, count)
+                        .map_err(|_| VqError("Safetensors source window read failed"))
+                },
+            ),
+            WeightOrientation::Conv1DInOut => {
+                let reader = TransposedFloatReader::new(self, tensor_name)
+                    .map_err(|_| VqError("Safetensors transposed reader could not be built"))?;
+                let borrowed = std::cell::RefCell::new(reader);
+                VqMatrix::encode_from_reader_to_hpsi_with_temp_spool(
+                    output,
+                    rows,
+                    cols,
+                    config,
+                    block_rows,
+                    |first, count| {
+                        let reader = borrowed.borrow();
+                        let mut values = Vec::new();
+                        values
+                            .try_reserve_exact(usize::try_from(count).map_err(|_| {
+                                VqError("Safetensors transposed window exceeds address space")
+                            })?)
+                            .map_err(|_| VqError("could not allocate transposed read window"))?;
+                        values.resize(values.capacity(), 0.0_f32);
+                        reader
+                            .read_elements_into(first, &mut values)
+                            .map_err(|_| VqError("Safetensors transposed window read failed"))?;
+                        Ok(values)
+                    },
+                )
+            }
+        }
+    }
+
+    /// Backwards-compatible direct import; assumes the legacy Linear layout
+    /// `[out_features, in_features]`. Prefer [`Self::encode_f32_tensor_to_hpsi_oriented`]
+    /// whenever the source orientation is known.
+    pub fn encode_f32_tensor_to_hpsi<W: Write + Seek>(
+        &self,
+        tensor_name: &str,
+        output: &mut W,
+        config: VqConfig,
+        block_rows: usize,
+    ) -> Result<WriterStats, VqError> {
+        self.encode_f32_tensor_to_hpsi_oriented(
+            tensor_name,
             output,
-            rows,
-            cols,
             config,
             block_rows,
-            |first, count| {
-                self.read_f32_elements(tensor_name, first, count)
-                    .map_err(|_| VqError("Safetensors source window read failed"))
-            },
+            WeightOrientation::LinearOutIn,
         )
     }
 
@@ -431,11 +509,7 @@ impl SafeTensorFile {
         if !(1..=2).contains(&tensor.shape.len()) {
             return Err(SafeTensorError::UnsupportedDtype);
         }
-        let width = match tensor.dtype.as_str() {
-            "F32" => 4_u64,
-            "F16" | "BF16" => 2_u64,
-            _ => return Err(SafeTensorError::UnsupportedDtype),
-        };
+        let width = float_width(tensor.dtype.as_str()).ok_or(SafeTensorError::UnsupportedDtype)?;
         let total_elements = tensor.shape.iter().try_fold(1_u64, |total, &dimension| {
             total
                 .checked_mul(dimension)
@@ -483,14 +557,7 @@ impl SafeTensorFile {
                 .iter_mut()
                 .zip(bytes[..byte_len].chunks_exact(element_width))
             {
-                *slot = match tensor.dtype.as_str() {
-                    "F32" => f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-                    "BF16" => {
-                        f32::from_bits(u32::from(u16::from_le_bytes([chunk[0], chunk[1]])) << 16)
-                    }
-                    "F16" => f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])),
-                    _ => return Err(SafeTensorError::UnsupportedDtype),
-                };
+                *slot = bytes_to_f32(tensor.dtype.as_str(), chunk)?;
             }
             completed += count;
         }
@@ -522,6 +589,217 @@ impl SafeTensorFile {
             .checked_mul(cols)
             .ok_or(SafeTensorError::OutOfBounds)?;
         self.read_f32_elements(name, first_element, element_count)
+    }
+}
+
+/// Block-tiled reader for a `Conv1D` weight stored as `[in_features, out_features]`
+/// in the Safetensors payload, presenting the logical `[out_features, in_features]`
+/// matrix to the VQ encoder.
+///
+/// The full matrix is never materialized: a tile of at most `block_rows` output
+/// rows (bounded by [`TRANSPOSED_TILE_BYTES`]) is decoded into memory and reused
+/// for all requests that fall inside it. Source memory therefore stays bounded
+/// even for very wide matrices.
+pub struct TransposedFloatReader<'a> {
+    file: &'a SafeTensorFile,
+    name: String,
+    in_features: u64,
+    out_features: u64,
+    dtype: String,
+    block_rows: u64,
+    tile: std::cell::RefCell<Option<TransposedTile>>,
+}
+struct TransposedTile {
+    first_out_row: u64,
+    /// Tile rows laid out output-first: `values[o * in_features + i]` holds
+    /// `tensor[i, out_row0 + o]` so slices in logical row layout stay contiguous.
+    values: Vec<f32>,
+}
+
+impl<'a> TransposedFloatReader<'a> {
+    /// Build a reader for a rank-2 F32/F16/BF16 tensor. The caller-facing matrix
+    /// transposition is `[in_features, out_features]` → `[out_features, in_features]`;
+    /// no semantics are inferred beyond that explicit orientation.
+    pub fn new(file: &'a SafeTensorFile, name: &str) -> Result<Self, SafeTensorError> {
+        let tensor = file
+            .tensor_by_name(name)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        if tensor.shape.len() != 2 {
+            return Err(SafeTensorError::UnsupportedDtype);
+        }
+        let width = float_width(tensor.dtype.as_str()).ok_or(SafeTensorError::UnsupportedDtype)?;
+        let (in_features, out_features) = (tensor.shape[0], tensor.shape[1]);
+        if in_features == 0 || out_features == 0 || width == 0 {
+            return Err(SafeTensorError::InvalidTensor);
+        }
+        let elements_u64 = in_features
+            .checked_mul(out_features)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let bytes = elements_u64
+            .checked_mul(width)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let expected = tensor
+            .data_end
+            .checked_sub(tensor.data_start)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        if bytes != expected {
+            return Err(SafeTensorError::InvalidTensor);
+        }
+        // Keep a tile to at most TRANSPOSED_TILE_BYTES of decoded f32 data and
+        // never more than 64 output rows.
+        let max_tile_rows = TRANSPOSED_TILE_BYTES / 4 / in_features.max(1);
+        let block_rows = max_tile_rows.clamp(1, 64);
+        let cloned_name = clone_header_text(name)?;
+        Ok(Self {
+            file,
+            name: cloned_name,
+            in_features,
+            out_features,
+            dtype: tensor.dtype.clone(),
+            block_rows,
+            tile: std::cell::RefCell::new(None),
+        })
+    }
+
+    /// Logical `[out_features, in_features]` shape presented to the caller.
+    pub fn logical_shape(&self) -> [u64; 2] {
+        [self.out_features, self.in_features]
+    }
+
+    fn load_tile(&self, first_out_row: u64) -> Result<(), SafeTensorError> {
+        let rows_in_tile = self
+            .out_features
+            .saturating_sub(first_out_row)
+            .min(self.block_rows);
+        let in_features_usize =
+            usize::try_from(self.in_features).map_err(|_| SafeTensorError::Allocation)?;
+        let rows_usize = usize::try_from(rows_in_tile).map_err(|_| SafeTensorError::Allocation)?;
+        let capacity = in_features_usize
+            .checked_mul(rows_usize)
+            .ok_or(SafeTensorError::Allocation)?;
+        let width = float_width(&self.dtype).ok_or(SafeTensorError::UnsupportedDtype)?;
+        let tensor = self
+            .file
+            .tensor_by_name(&self.name)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let absolute_start = self
+            .file
+            .data_start
+            .checked_add(tensor.data_start)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        // Output-row-major tile: `values[o * in + i] = tensor[i, out_row0 + o]`,
+        // so a logical row slice is a contiguous range. One in-row at a time is
+        // decoded, capping memory at `rows_in_tile * width` bytes.
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(capacity)
+            .map_err(|_| SafeTensorError::Allocation)?;
+        values.resize(capacity, 0.0_f32);
+        let mut bytes = Vec::new();
+        let chunk_len = rows_usize
+            .checked_mul(width as usize)
+            .ok_or(SafeTensorError::Allocation)?;
+        bytes
+            .try_reserve_exact(chunk_len)
+            .map_err(|_| SafeTensorError::Allocation)?;
+        bytes.resize(chunk_len, 0);
+        for in_index in 0..in_features_usize {
+            let element_offset = (in_index as u64)
+                .checked_mul(self.out_features)
+                .and_then(|base| base.checked_add(first_out_row))
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            let byte_offset = absolute_start
+                .checked_add(
+                    element_offset
+                        .checked_mul(width)
+                        .ok_or(SafeTensorError::OutOfBounds)?,
+                )
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            self.file
+                .source
+                .read_exact_at(byte_offset, &mut bytes)
+                .map_err(|_| SafeTensorError::Io)?;
+            let element_width = width as usize;
+            for slot in 0..rows_usize {
+                let tile_index = slot
+                    .checked_mul(in_features_usize)
+                    .and_then(|value| value.checked_add(in_index))
+                    .ok_or(SafeTensorError::Allocation)?;
+                let chunk = &bytes[slot * element_width..(slot + 1) * element_width];
+                values[tile_index] = bytes_to_f32(&self.dtype, chunk)?;
+            }
+        }
+        *self.tile.borrow_mut() = Some(TransposedTile {
+            first_out_row,
+            values,
+        });
+        Ok(())
+    }
+
+    /// Read an arbitrary contiguous element range of the logical
+    /// `[out_features, in_features]` matrix. Target length must not exceed
+    /// `in_features`, which the streaming VQ encoder guarantees (it reads
+    /// either `GROUP_SIZE` windows or full rows).
+    pub fn read_elements_into(
+        &self,
+        first_element: u64,
+        values: &mut [f32],
+    ) -> Result<(), SafeTensorError> {
+        let element_count =
+            u64::try_from(values.len()).map_err(|_| SafeTensorError::OutOfBounds)?;
+        if element_count > self.in_features {
+            return Err(SafeTensorError::OutOfBounds);
+        }
+        let total_elements = self
+            .in_features
+            .checked_mul(self.out_features)
+            .ok_or(SafeTensorError::InvalidTensor)?;
+        let end = first_element
+            .checked_add(element_count)
+            .ok_or(SafeTensorError::OutOfBounds)?;
+        if end > total_elements {
+            return Err(SafeTensorError::OutOfBounds);
+        }
+        let mut written = 0_u64;
+        while written < element_count {
+            let absolute = first_element
+                .checked_add(written)
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            let out_row = absolute / self.in_features;
+            let in_index = absolute - out_row * self.in_features;
+            let rows_remaining = self.in_features - in_index;
+            let take = rows_remaining.min(element_count - written);
+            let tile_index = out_row / self.block_rows;
+            let tile_first = tile_index
+                .checked_mul(self.block_rows)
+                .ok_or(SafeTensorError::OutOfBounds)?;
+            {
+                let cached = self.tile.borrow();
+                let needs_load = cached
+                    .as_ref()
+                    .is_none_or(|tile| tile.first_out_row != tile_first);
+                drop(cached);
+                if needs_load {
+                    self.load_tile(tile_first)?;
+                }
+            }
+            let tile = self.tile.borrow();
+            let cached = tile.as_ref().ok_or(SafeTensorError::Allocation)?;
+            let local_row = (out_row - cached.first_out_row) as usize;
+            let start = local_row
+                .checked_mul(usize::try_from(self.in_features).unwrap_or(usize::MAX))
+                .ok_or(SafeTensorError::Allocation)?;
+            let in_usize = usize::try_from(in_index).map_err(|_| SafeTensorError::Allocation)?;
+            let out_usize = usize::try_from(take).map_err(|_| SafeTensorError::Allocation)?;
+            let src_start = start + in_usize;
+            values[written as usize..(written + take) as usize]
+                .copy_from_slice(&cached.values[src_start..src_start + out_usize]);
+            written += take;
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(SafeTensorError::InvalidTensor);
+        }
+        Ok(())
     }
 }
 

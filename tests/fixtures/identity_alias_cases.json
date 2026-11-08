@@ -1,0 +1,520 @@
+{
+  "format": "hpsi-identity-alias-cases",
+  "version": 1,
+  "note": [
+    "One table, two readers: crates/hpsi-ops/tests/identity_alias_parity.rs and",
+    "tests/test_identity_alias_parity.py both feed `manifest` to their own",
+    "architecture-manifest parser and compare the outcome. `expect` is null when",
+    "the entry is valid, otherwise a distinctive fragment of the reason both",
+    "implementations must produce. Neither implementation calls the other and",
+    "neither shares code with it: agreement here is evidence about the contract.",
+    "A fragment is not a reason code; codes belong to the layout matrix and are",
+    "covered by tests/fixtures/embedding_layout_cases.json."
+  ],
+  "cases": [
+    {
+      "id": "tied_both_roles_with_pairing",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table", "linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "index_axis": 0,
+            "aliases": ["lm_head.weight", "transformer.wte.weight"],
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              },
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "positional_table_without_orientation",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wpe.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "transformer.wpe.weight",
+                "module": "transformer.wpe",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "untied_equal_values_stay_two_entries",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "aliases": ["transformer.wte.weight"],
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          },
+          {
+            "name": "lm_head.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "aliases": ["lm_head.weight"],
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "conv1d_pairing",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.h.0.attn.c_attn.weight",
+            "tensor_role": ["conv1d_projection"],
+            "weight_orientation": "conv1d_in_out",
+            "role_evidence": [
+              {
+                "alias": "transformer.h.0.attn.c_attn.weight",
+                "module": "transformer.h.0.attn.c_attn",
+                "module_class": "conv1d",
+                "tensor_role": "conv1d_projection",
+                "weight_orientation": "conv1d_in_out"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "pairing_fills_in_missing_aliases",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "legacy_entry_without_new_keys",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {"name": "a.weight", "weight_orientation": "linear_out_in"},
+          {"name": "b.weight", "tensor_role": ["other"]}
+        ]
+      },
+      "expect": null
+    },
+    {
+      "id": "role_missing_from_tensor_role",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              },
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "which `tensor_role` does not declare"
+    },
+    {
+      "id": "declared_role_without_evidence",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table", "linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "with no role_evidence naming the module that evidences it"
+    },
+    {
+      "id": "evidence_alias_not_declared",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "aliases": ["transformer.wte.weight"],
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "is not among `aliases`"
+    },
+    {
+      "id": "duplicate_evidence_alias",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              },
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "appears twice in `role_evidence`"
+    },
+    {
+      "id": "shared_alias_across_identities",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "aliases": ["transformer.wte.weight", "lm_head.weight"],
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 0
+              }
+            ]
+          },
+          {
+            "name": "lm_head.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {
+                "alias": "lm_head.weight",
+                "module": "lm_head",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "is declared twice"
+    },
+    {
+      "id": "embedding_without_index_axis",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "without an index_axis"
+    },
+    {
+      "id": "evidence_axis_disagrees_with_entry",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 0,
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 1
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "while the entry declares"
+    },
+    {
+      "id": "linear_role_with_conv1d_layout",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "proj.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {
+                "alias": "proj.weight",
+                "module": "proj",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "conv1d_in_out"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "which that role does not imply"
+    },
+    {
+      "id": "projection_row_claims_an_axis",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "proj.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {
+                "alias": "proj.weight",
+                "module": "proj",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in",
+                "index_axis": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "only meaningful for embedding_table"
+    },
+    {
+      "id": "blank_alias_in_evidence",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "proj.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {
+                "alias": "  ",
+                "module": "proj",
+                "module_class": "linear",
+                "tensor_role": "linear_projection",
+                "weight_orientation": "linear_out_in"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "lacks a non-empty `alias`"
+    },
+    {
+      "id": "evidence_row_without_a_role",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "proj.weight",
+            "tensor_role": ["linear_projection"],
+            "weight_orientation": "linear_out_in",
+            "role_evidence": [
+              {"alias": "proj.weight", "module": "proj", "module_class": "linear"}
+            ]
+          }
+        ]
+      },
+      "expect": "lacks a non-empty `tensor_role`"
+    },
+    {
+      "id": "unknown_role_token_in_evidence",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "proj.weight",
+            "tensor_role": ["linear"],
+            "weight_orientation": "linear_out_in"
+          }
+        ]
+      },
+      "expect": "role_token_unknown"
+    },
+    {
+      "id": "axis_one_table_pairing",
+      "manifest": {
+        "format": "hpsi-architecture-manifest",
+        "version": 1,
+        "model_type": "gpt2",
+        "tensors": [
+          {
+            "name": "transformer.wte.weight",
+            "tensor_role": ["embedding_table"],
+            "index_axis": 1,
+            "role_evidence": [
+              {
+                "alias": "transformer.wte.weight",
+                "module": "transformer.wte",
+                "module_class": "embedding",
+                "tensor_role": "embedding_table",
+                "index_axis": 1
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "axis_one_unsupported"
+    }
+  ]
+}

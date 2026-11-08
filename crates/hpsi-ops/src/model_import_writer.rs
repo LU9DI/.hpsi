@@ -1,6 +1,8 @@
+use crate::orientation::TensorRole;
 use crate::{
     CODEBOOK_SIZE, CalibratedModelImportPlan, CalibrationProvenance, GROUP_SIZE, ModelImportPlan,
-    SafeTensorFile, TensorDisposition, VqConfig, VqError, VqMatrix,
+    SafeTensorFile, TensorDisposition, VqConfig, VqError, VqMatrix, WeightOrientation,
+    WeightOrientationSource,
 };
 use hpsi_format::{
     DType, FileSource, ModelReader, ModelWriter, ReaderLimits, StreamingTensorInput, WriterStats,
@@ -125,6 +127,18 @@ impl Drop for ImportSpool {
         drop(self.file.take());
         let _ = fs::remove_file(&self.path);
     }
+}
+
+/// Logical `[out_features, in_features]` dimensions of a planned tensor,
+/// derived solely from the explicitly persisted orientation.
+fn logical_dims(orientation: WeightOrientation, shape: &[u64]) -> Result<(u64, u64), VqError> {
+    let in_features = orientation.in_features(shape).ok_or(VqError(
+        "planned tensor shape is incompatible with its weight orientation",
+    ))?;
+    let out_features = orientation.out_features(shape).ok_or(VqError(
+        "planned tensor shape is incompatible with its weight orientation",
+    ))?;
+    Ok((out_features, in_features))
 }
 
 fn clone_import_name(name: &str) -> Result<String, VqError> {
@@ -429,8 +443,14 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
         }
         match planned.disposition {
             TensorDisposition::QuantizeVq => {
-                if info.shape.len() != 2
-                    || info.shape[1] % GROUP_SIZE as u64 != 0
+                if info.shape.len() != 2 {
+                    return Err(VqError(
+                        "planned VQ tensor is not eligible for quantization",
+                    ));
+                }
+                let (_logical_rows, logical_cols) =
+                    logical_dims(planned.weight_orientation, &info.shape)?;
+                if logical_cols % GROUP_SIZE as u64 != 0
                     || !matches!(info.dtype.as_str(), "F32" | "F16" | "BF16")
                 {
                     return Err(VqError(
@@ -457,8 +477,16 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                         "VQ plan contains invalid or colliding generated names",
                     ));
                 }
+                // Orientation declared by the plan must be consistent with the
+                // moments: they are diagonal second moments of the inputs to
+                // the projection, so their length is `in_features`.
                 if let Some(moment) = planned.activation_second_moment.as_deref() {
-                    if u64::try_from(moment.len()).ok() != Some(info.shape[1])
+                    let expected_features = u64::try_from(moment.len())
+                        .map_err(|_| VqError("activation moments exceed format range"))?;
+                    if planned
+                        .weight_orientation
+                        .in_features(&info.shape)
+                        .is_none_or(|features| features != expected_features)
                         || moment
                             .iter()
                             .any(|value| !value.is_finite() || *value < 0.0)
@@ -471,6 +499,18 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                 } else if planned.calibration_samples.is_some() {
                     return Err(VqError(
                         "VQ calibration sample count has no activation moments",
+                    ));
+                }
+                // A calibration-declared plan must carry moments and a declared
+                // orientation source of `calibration`.
+                if planned.orientation_source == WeightOrientationSource::Calibration
+                    && (planned.activation_second_moment.is_none()
+                        || planned
+                            .calibration_samples
+                            .is_none_or(|samples| samples == 0))
+                {
+                    return Err(VqError(
+                        "VQ plan declares calibration orientation without calibration moments",
                     ));
                 }
             }
@@ -504,8 +544,12 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
             let provenance = calibration_by_name.get(planned.source_name.as_str());
             match (planned.disposition, provenance) {
                 (TensorDisposition::QuantizeVq, Some(item)) => {
+                    let provenance_dims =
+                        logical_dims(planned.weight_orientation, &planned.source_shape)?;
                     if planned.calibration_samples != Some(item.sample_count)
-                        || u64::try_from(item.features).ok() != planned.source_shape.get(1).copied()
+                        || u64::try_from(item.features).ok() != Some(provenance_dims.1)
+                        || item.weight_orientation != planned.weight_orientation.as_str()
+                        || item.orientation_source != planned.orientation_source.as_str()
                         || planned.activation_second_moment.as_ref().map(Vec::len)
                             != Some(item.features)
                     {
@@ -574,9 +618,11 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                 )
             }
             TensorDisposition::QuantizeVq => {
-                let rows = usize::try_from(info.shape[0])
+                let (logical_rows, logical_cols) =
+                    logical_dims(planned.weight_orientation, &info.shape)?;
+                let rows = usize::try_from(logical_rows)
                     .map_err(|_| VqError("row count exceeds address space"))?;
-                let cols = usize::try_from(info.shape[1])
+                let cols = usize::try_from(logical_cols)
                     .map_err(|_| VqError("column count exceeds address space"))?;
                 if rows == 0 {
                     return Err(VqError("VQ tensors must contain at least one row"));
@@ -691,22 +737,66 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
         .try_reserve_exact(output_tensor_count)
         .map_err(|_| VqError("could not reserve metadata tensor names"))?;
     for planned in &plan.tensors {
+        // `logical_shape` only makes sense for rank-2 weights; raw tensors of
+        // other ranks (e.g. vector norms) keep their original shape untouched.
+        let rank2 = planned.source_shape.len() == 2;
+        let logical = if rank2 {
+            logical_dims(planned.weight_orientation, &planned.source_shape).ok()
+        } else {
+            None
+        };
+        // A role describes a matrix. For a non-matrix the plan may hold a
+        // projection role from a stray calibration record, and recording it here
+        // would claim a layout that does not exist, so only the two roles that
+        // say nothing about layout are emitted for other ranks.
+        let emitted_role = if rank2 {
+            planned.role
+        } else if matches!(planned.role, TensorRole::Other) {
+            TensorRole::Other
+        } else {
+            TensorRole::Unknown
+        };
+        // A producer must not ship a role that contradicts the layout it used.
+        // The plan builds both from the same module class, so reaching here means
+        // a handcrafted or forged plan: refusing is the only honest option,
+        // because silently relabelling either field would launder the
+        // contradiction into a self-consistent-looking artifact.
+        if !crate::orientation::role_layout_is_consistent(
+            rank2.then_some(emitted_role),
+            rank2.then_some(planned.weight_orientation),
+            rank2.then_some(planned.index_axis).flatten(),
+        ) {
+            return Err(VqError(
+                "import plan role contradicts its recorded orientation or index axis",
+            ));
+        }
         let mut source_entry = json!({
             "name": planned.source_name,
             "source_dtype": planned.source_dtype,
             "source_shape": planned.source_shape,
+            "weight_orientation": planned.weight_orientation.as_str(),
+            "orientation_source": planned.orientation_source.as_str(),
+            "tensor_role": emitted_role.as_str(),
             "disposition": match planned.disposition {
                 TensorDisposition::QuantizeVq => "quantize_vq",
                 TensorDisposition::PreserveRaw => "preserve_raw"
             }
         });
+        if let (true, Some(axis)) = (rank2, planned.index_axis) {
+            source_entry["index_axis"] = json!(axis);
+        }
+        if let Some((logical_rows, logical_cols)) = logical {
+            source_entry["logical_shape"] = json!([logical_rows, logical_cols]);
+        }
         if let Some(calibration) = calibration_by_name.get(planned.source_name.as_str()) {
             let mut persisted = json!({
                 "model_type": calibration.model_type,
                 "dataset_sha256": calibration.dataset_sha256,
                 "sample_count": calibration.sample_count,
                 "features": calibration.features,
-                "statistic": calibration.statistic
+                "statistic": calibration.statistic,
+                "weight_orientation": calibration.weight_orientation,
+                "orientation_source": calibration.orientation_source,
             });
             if let Some(revision) = calibration.model_revision.as_deref() {
                 persisted["model_revision"] = json!(revision);
@@ -829,9 +919,11 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                 if info.shape.len() != 2 || !matches!(info.dtype.as_str(), "F32" | "F16" | "BF16") {
                     return Err(VqError("planned VQ tensor is no longer quantizable"));
                 }
-                let rows = usize::try_from(info.shape[0])
+                let (logical_rows, logical_cols) =
+                    logical_dims(planned.weight_orientation, &info.shape)?;
+                let rows = usize::try_from(logical_rows)
                     .map_err(|_| VqError("row count exceeds address space"))?;
-                let cols = usize::try_from(info.shape[1])
+                let cols = usize::try_from(logical_cols)
                     .map_err(|_| VqError("column count exceeds address space"))?;
                 let selectors_per_row = (cols / GROUP_SIZE)
                     .checked_mul(config.codebook_count)
@@ -840,6 +932,27 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                     return Err(VqError("VQ selector rows are not byte aligned"));
                 }
                 let bytes_per_row = selectors_per_row / 2;
+                // One reader per encoding pass: a transposed tile stays alive
+                // across every window read so the VQ encoder never re-reads
+                // the source matrix more than once per training/encoding pass.
+                let transposed_reader = match planned.weight_orientation {
+                    WeightOrientation::Conv1DInOut => Some(
+                        crate::TransposedFloatReader::new(source, &planned.source_name).map_err(
+                            |_| VqError("Safetensors transposed reader could not be built"),
+                        )?,
+                    ),
+                    WeightOrientation::LinearOutIn => None,
+                };
+                let read_row_window = |first: u64, target: &mut [f32]| -> Result<(), VqError> {
+                    match transposed_reader.as_ref() {
+                        Some(reader) => reader
+                            .read_elements_into(first, target)
+                            .map_err(|_| VqError("Safetensors transposed VQ source read failed")),
+                        None => source
+                            .read_f32_elements_into(&planned.source_name, first, target)
+                            .map_err(|_| VqError("Safetensors VQ source read failed")),
+                    }
+                };
                 let codebook = if let Some(importance) = planned.activation_second_moment.as_deref()
                 {
                     VqMatrix::encode_from_reader_activation_aware_into(
@@ -847,11 +960,7 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                         cols,
                         config,
                         importance,
-                        |first, target| {
-                            source
-                                .read_f32_elements_into(&planned.source_name, first, target)
-                                .map_err(|_| VqError("Safetensors VQ source read failed"))
-                        },
+                        &read_row_window,
                         |_, row| {
                             spool
                                 .write_all(row)
@@ -864,11 +973,7 @@ fn write_model_import_to_hpsi_inner<W: Write + Seek>(
                         rows,
                         cols,
                         config,
-                        |first, target| {
-                            source
-                                .read_f32_elements_into(&planned.source_name, first, target)
-                                .map_err(|_| VqError("Safetensors VQ source read failed"))
-                        },
+                        &read_row_window,
                         |_, row| {
                             spool
                                 .write_all(row)
@@ -1099,6 +1204,7 @@ mod tests {
             model_type: "test-transformer".into(),
             model_revision: Some("revision-42".into()),
             dataset_sha256: "a".repeat(64),
+            module_type: Some("linear".into()),
         };
         let calibrated = ModelImportPlan::build_with_provenance(
             &source,
@@ -1154,6 +1260,7 @@ mod tests {
             model_type: "test-transformer".into(),
             model_revision: None,
             dataset_sha256: "b".repeat(64),
+            module_type: Some("linear".into()),
         };
         let calibrated = ModelImportPlan::build_with_provenance(
             &source,
@@ -1247,6 +1354,7 @@ mod tests {
                 model_type: "synthetic-transformer-stress".into(),
                 model_revision: Some("fixture-revision".into()),
                 dataset_sha256: "c".repeat(64),
+                module_type: Some("linear".into()),
             })
             .collect();
         let calibrated = ModelImportPlan::build_with_provenance(
@@ -1307,6 +1415,7 @@ mod tests {
             model_type: "test-transformer".into(),
             model_revision: None,
             dataset_sha256: "d".repeat(64),
+            module_type: Some("linear".into()),
         };
         let calibrated = ModelImportPlan::build_with_provenance(
             &source,
@@ -1522,6 +1631,7 @@ mod tests {
             model_type: "fixture".into(),
             model_revision: None,
             dataset_sha256: "b".repeat(64),
+            module_type: Some("linear".into()),
         };
         let plan = ModelImportPlan::build(
             &source,

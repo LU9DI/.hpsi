@@ -1,4 +1,7 @@
-use crate::{ActivationCalibration, SafeTensorFile, VqError};
+use crate::orientation::{ArchitectureFacts, TensorRole};
+use crate::{
+    ActivationCalibration, SafeTensorFile, VqError, WeightOrientation, WeightOrientationSource,
+};
 use std::collections::{HashMap, HashSet};
 
 /// A deterministic, validated plan for a multi-tensor Safetensors import.
@@ -19,6 +22,33 @@ pub struct PlannedTensor {
     pub calibration_samples: Option<usize>,
     /// Exact diagonal second moments used by activation-aware VQ encoding.
     pub activation_second_moment: Option<Vec<f32>>,
+    /// Explicit orientation of the source weight matrix (never inferred).
+    pub weight_orientation: WeightOrientation,
+    /// Whether the orientation was declared by the capture bundle or assumed.
+    pub orientation_source: WeightOrientationSource,
+    /// Architectural role, taken from the capture's module class. A plan built
+    /// without any class evidence records `unknown` rather than assuming a
+    /// projection: an orientation token describes an layout, and assuming
+    /// one has never been evidence of what the tensor is for.
+    pub role: TensorRole,
+    /// Which axis a lookup table indexes. Only `apply_architecture_roles` can
+    /// set it, because only a model definition states it.
+    pub index_axis: Option<usize>,
+}
+
+impl PlannedTensor {
+    /// The role a capture bundle's `module_type` evidences.
+    ///
+    /// `linear` and `conv1d` name classes, not name patterns; a bundle that
+    /// predates the module-type field states no class, so the role stays
+    /// explicitly unknown while the documented legacy layout still applies.
+    fn role_from_calibration(calibration: &ActivationCalibration) -> TensorRole {
+        match calibration.module_type.as_deref() {
+            Some("linear") => TensorRole::LinearProjection,
+            Some("conv1d") => TensorRole::Conv1dProjection,
+            _ => TensorRole::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,10 +160,39 @@ impl ModelImportPlan {
                     "source tensor rank or dimensions are incompatible with HPSI",
                 ));
             }
-            let quantizable = tensor.shape.len() == 2
-                && tensor.shape.iter().all(|dimension| *dimension > 0)
-                && tensor.shape[1] % crate::vq::GROUP_SIZE as u64 == 0
-                && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16");
+            let (weight_orientation, orientation_source, role) =
+                match calibration_by_name.get(tensor.name.as_str()) {
+                    Some(calibration) => (
+                        calibration.weight_orientation().map_err(|_| {
+                            VqError("activation calibration contains invalid orientation metadata")
+                        })?,
+                        calibration.orientation_source(),
+                        PlannedTensor::role_from_calibration(calibration),
+                    ),
+                    None => (
+                        WeightOrientation::LinearOutIn,
+                        WeightOrientationSource::LegacyDefault,
+                        TensorRole::Unknown,
+                    ),
+                };
+            let features_in = if tensor.shape.len() == 2 {
+                Some(
+                    weight_orientation
+                        .in_features(&tensor.shape)
+                        .ok_or(VqError(
+                            "activation calibration references a malformed weight shape",
+                        ))?,
+                )
+            } else {
+                // Raw ranks other than 2 are preserved verbatim and carry no
+                // input feature dimension.
+                None
+            };
+            let quantizable = features_in.is_some_and(|features| {
+                tensor.shape.iter().all(|dimension| *dimension > 0)
+                    && features % crate::vq::GROUP_SIZE as u64 == 0
+                    && matches!(tensor.dtype.as_str(), "F32" | "F16" | "BF16")
+            });
             if calibration_by_name.contains_key(tensor.name.as_str()) && !quantizable {
                 return Err(VqError(
                     "activation calibration targets a tensor that is not eligible for VQ",
@@ -168,7 +227,7 @@ impl ModelImportPlan {
                 }
                 let calibration_samples = match calibration_by_name.get(tensor.name.as_str()) {
                     Some(calibration) => {
-                        if u64::try_from(calibration.features).ok() != Some(tensor.shape[1]) {
+                        if u64::try_from(calibration.features).ok() != features_in {
                             return Err(VqError("activation calibration feature count mismatch"));
                         }
                         Some(calibration.sample_count)
@@ -207,9 +266,128 @@ impl ModelImportPlan {
                 indices_name,
                 calibration_samples,
                 activation_second_moment,
+                weight_orientation,
+                orientation_source,
+                role,
+                index_axis: None,
             });
         }
         Ok(Self { tensors })
+    }
+}
+
+impl ModelImportPlan {
+    /// Refine the plan with the roles a model definition evidences.
+    ///
+    /// A capture bundle can only speak about the modules it hooked, so it never
+    /// states what a lookup table is: an embedding has no input activations to
+    /// take a second moment of. A model definition does know the class, and this
+    /// is the only legitimate route by which a table gains a role. Nothing is
+    /// inferred from names, suffixes or shapes: a tensor the manifest does not
+    /// describe keeps exactly the role the calibration gave it.
+    ///
+    /// A table with no projection evidence is preserved RAW. That is the existing
+    /// documented path for a tensor HPSI must not reinterpret; the alternative
+    /// would be serving a lookup through the matvec kernel, and no lookup kernel
+    /// ships in this contract. A table that the definition also reaches as a
+    /// projection (a tied embedding/output head) keeps its projection encoding
+    /// and records the projection role, because that is the function it was
+    /// quantized under.
+    pub fn apply_architecture_roles(&mut self, facts: &ArchitectureFacts) -> Result<(), String> {
+        for planned in &mut self.tensors {
+            let Some(expectation) = facts.expectation(&planned.source_name) else {
+                continue;
+            };
+            if expectation.roles.is_empty() {
+                continue;
+            }
+            let projection = expectation.roles.iter().find(|role| role.is_projection());
+            if let Some(role) = projection.copied() {
+                let required = match role {
+                    TensorRole::Conv1dProjection => WeightOrientation::Conv1DInOut,
+                    _ => WeightOrientation::LinearOutIn,
+                };
+                if planned.weight_orientation != required {
+                    return Err(format!(
+                        "{}: the model definition reaches this tensor as {}, which is laid out {:?}, but the plan would encode it {:?}",
+                        planned.source_name,
+                        role.as_str(),
+                        required.as_str(),
+                        planned.weight_orientation.as_str()
+                    ));
+                }
+                planned.role = role;
+                // v0.1 records one role per tensor: the function it was actually
+                // encoded under. A tied weight reached as both a table and a
+                // projection is recorded as the projection, because that is what
+                // its selector bytes mean; the additional table role stays in the
+                // model definition, where the audit surfaces it as
+                // `architecture_roles`. `index_axis` belongs to the recorded role,
+                // so it is not emitted for a projection.
+                planned.index_axis = None;
+                continue;
+            }
+            if !expectation
+                .roles
+                .iter()
+                .any(|role| matches!(role, TensorRole::EmbeddingTable))
+            {
+                // A role that states neither a projection nor a table: recorded
+                // as the definition gives it, with no layout claim implied.
+                planned.role = expectation.roles[0];
+                planned.index_axis = None;
+                continue;
+            }
+            let axis = expectation.index_axis.ok_or_else(|| {
+                format!(
+                    "{}: embedding_table requires index_axis 0 or 1",
+                    planned.source_name
+                )
+            })?;
+            if planned.source_shape.len() != 2 {
+                return Err(format!(
+                    "{}: an indexed table must be rank 2, found shape {:?}",
+                    planned.source_name, planned.source_shape
+                ));
+            }
+            if axis == 1 {
+                // Axis 1 needs the `[feature, index]` layout, i.e. the
+                // `conv1d_in_out` encoding, on a tensor that is not a Conv1D
+                // layer. v0.1 permits that pairing only through
+                // `orientation_source: calibration`, which requires an activation
+                // object an indexed table cannot honestly carry. Saying so here,
+                // instead of quietly relabelling the table as a Conv1D, is the
+                // contract decision this phase deliberately leaves pending.
+                return Err(format!(
+                    "{}: an embedding table indexed on axis 1 cannot state its layout under v0.1 without inventing a calibration claim; this needs the role schema decision in docs/orientation-policy.md",
+                    planned.source_name
+                ));
+            }
+            // A tensor the capture measured input activations for is used as a
+            // multiplication somewhere in the model, so the definition calling it
+            // purely an indexed table is a disagreement to resolve in the model
+            // definition, not something to encode. v0.1 could not express the
+            // combination anyway: a RAW tensor must not carry calibration, and an
+            // indexing role with calibration provenance would need a calibration
+            // object.
+            if planned.orientation_source == WeightOrientationSource::Calibration {
+                return Err(format!(
+                    "{}: the capture bundle measured input activations for this tensor while the model definition states it is only an indexed table; a tensor reached as a projection must keep the projection role it was encoded under",
+                    planned.source_name
+                ));
+            }
+            planned.role = TensorRole::EmbeddingTable;
+            planned.index_axis = Some(axis);
+            // Features stay on the grouped axis, so the recorded layout is
+            // the one an indexed-first table implies.
+            planned.weight_orientation = WeightOrientation::LinearOutIn;
+            planned.disposition = TensorDisposition::PreserveRaw;
+            planned.codebook_name = None;
+            planned.indices_name = None;
+            planned.calibration_samples = None;
+            planned.activation_second_moment = None;
+        }
+        Ok(())
     }
 }
 
@@ -224,6 +402,10 @@ pub struct CalibrationProvenance {
     pub sample_count: usize,
     pub features: usize,
     pub statistic: String,
+    /// Explicit orientation of the calibrated layer's weight matrix.
+    pub weight_orientation: String,
+    /// Whether the orientation was declared by the capture bundle or assumed.
+    pub orientation_source: String,
 }
 
 /// An import plan paired with the calibration provenance required to explain
@@ -263,6 +445,15 @@ impl ModelImportPlan {
                 sample_count: calibration.sample_count,
                 features: calibration.features,
                 statistic: "diagonal_second_moment".to_owned(),
+                weight_orientation: clone_plan_text(
+                    calibration
+                        .weight_orientation()
+                        .map_err(|_| {
+                            VqError("activation calibration contains invalid orientation metadata")
+                        })?
+                        .as_str(),
+                )?,
+                orientation_source: clone_plan_text(calibration.orientation_source().as_str())?,
             });
         }
         provenance.sort_unstable_by(|left, right| left.source_name.cmp(&right.source_name));
@@ -297,6 +488,7 @@ mod tests {
             model_type: "test".into(),
             model_revision: None,
             dataset_sha256: "a".repeat(64),
+            module_type: Some("linear".into()),
         }
     }
 
@@ -325,6 +517,28 @@ mod tests {
         assert_eq!(
             first.tensors[1].activation_second_moment.as_ref().unwrap(),
             &vec![1.0; 8]
+        );
+        assert_eq!(
+            first.tensors[1].weight_orientation,
+            crate::WeightOrientation::LinearOutIn
+        );
+        assert_eq!(
+            first.tensors[1].orientation_source,
+            crate::WeightOrientationSource::Calibration
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_orientation_module_type() {
+        let mut invalid = calibration();
+        invalid.module_type = Some("Conv1D".into());
+        assert!(
+            ModelImportPlan::build(
+                &source(),
+                &[invalid],
+                UnsupportedTensorPolicy::AllowRawPreservation
+            )
+            .is_err()
         );
     }
 

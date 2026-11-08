@@ -85,7 +85,34 @@ The parser must enforce configured maximum metadata bytes, JSON nesting depth, s
 
 The Safetensors importer may add a descriptive `user.source_tensors` array. Each entry identifies the source tensor by `name` and may include `source_dtype`, `source_shape`, and `disposition`. The provenance-aware calibrated importer may additionally include a `calibration` object on a quantized source tensor. Its fields are `model_type`, optional `model_revision`, `dataset_sha256`, `sample_count`, `features`, and `statistic`. The current statistic identifier is `diagonal_second_moment`.
 
+For any rank-2 source tensor the entry must carry `weight_orientation` and `orientation_source`:
+
+- `weight_orientation` is one of `linear_out_in` or `conv1d_in_out`.
+  - `linear_out_in` (layout `[out_features, in_features]`) matches `torch.nn.Linear` weights.
+  - `conv1d_in_out` (layout `[in_features, out_features]`) matches Hugging Face Transformers `Conv1D` weights.
+- `orientation_source` is one of `calibration` (declared explicitly by the capture bundle's `module_type`: `linear` or `conv1d`) or `legacy_default` (no orientation metadata was declared; the importer assumed `linear_out_in`).
+- Rank-2 entries should also carry `logical_shape` = `[out_features, in_features]`, derived from the persisted orientation, so a reader can verify consistency without re-deriving it from the source.
+
+Orientation is never inferred from tensor names, module names, or shape. A calibration whose `module_type` is present must agree with the orientation recorded in the plan; mismatches between a `calibration` object and any other entry declaring contradicting orientation are invalid imports, not advisory findings. A rank-2 `preserve_raw` tensor keeps its original bytes and shape untouched and carries no VQ logical shape beyond what is derivable consistently with its orientation.
+
+Containers written without orientation metadata (or with `orientation_source` = `legacy_default`) must keep the documented legacy default: rank-2 matrices are treated as `[out_features, in_features]` (`linear_out_in`). Such artifacts must not be silently reinterpreted as `conv1d_in_out`, and neither may calibration metadata be attached to a tensor whose persisted orientation contradicts it. Readers and auditors should surface `legacy_default` explicitly rather than "fixing" the orientation on read.
+
+These fields describe a claim; they do not prove it. Container integrity, metadata self-consistency, architectural compatibility and numeric correctness are four different assertions, and a `[n, n]` matrix — like a `[16, 32]`/`[32, 16]` VQ pair — cannot be discriminated from the bytes of the artifact alone. See [orientation-policy.md](orientation-policy.md) for what a consumer may conclude and when it must refuse or require explicit confirmation.
+
 This is importer-specific descriptive metadata, not a tensor-directory extension. Readers that do not understand calibration provenance may ignore it while preserving the metadata object. The calibration moment vector is not required in the manifest; it is an encoding input and is not copied into the artifact metadata. Raw-preserved tensors must not carry a calibration object. Older artifacts without this object remain valid.
+
+### 4.2 Architectural role (additive descriptive metadata)
+
+A rank-2 entry may additionally carry `tensor_role`, which states what the tensor is *for*. This is a dimension independent of `weight_orientation`, which states how a projection matrix is *laid out*; neither field substitutes for the other:
+
+- `linear_projection` requires `weight_orientation` = `linear_out_in`.
+- `conv1d_projection` requires `weight_orientation` = `conv1d_in_out`.
+- `embedding_table` requires `index_axis` (`0` for the Hugging Face convention `[num_embeddings, embedding_dim]`, `1` for `[embedding_dim, num_embeddings]`). The features live on the other axis, which is the axis the quantizer groups, so the recorded `weight_orientation` must be `linear_out_in` for `index_axis` 0 and `conv1d_in_out` for `index_axis` 1. A role never replaces the grouping field.
+- `other` and `unknown` state no projection: `other` means the producer identified a function that is not a projection, `unknown` means the function was never established. Neither may carry `index_axis`, and `unknown` must never be reported as `other` or as a pre-role artifact.
+
+An entry with no `tensor_role` at all is a pre-role artifact and is interpreted exactly as §4.1 has always specified: the recorded orientation is the whole claim, confirmed or refused without any role inference. That is what makes the field additive — a reader that does not know roles ignores it, and an artifact written before it existed changes meaning for nobody.
+
+One combination is deliberately **not** expressible in v0.1: an indexed table that states no `weight_orientation` at all. §4.1 requires `weight_orientation` for every rank-2 tensor, so a producer records which axis it grouped even for a table, and readers must treat that field as an encoding fact rather than an architectural claim about multiplication. Dropping that requirement is a public-schema decision, recorded as pending in [orientation-policy.md](orientation-policy.md) and not made here.
 
 The writer should emit deterministic JSON (stable key ordering and no insignificant whitespace) to support reproducible artifacts.
 

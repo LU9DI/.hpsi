@@ -1,16 +1,21 @@
 use hpsi_format::{DType, FileSource, ModelReader, ReaderLimits};
 use hpsi_ops::{
-    ActivationCalibration, ModelImportPlan, UnsupportedTensorPolicy, VqConfig,
-    write_model_import_to_hpsi_path, write_model_import_to_hpsi_path_calibrated,
+    ActivationCalibration, ArchitectureFacts, ModelImportPlan, OrientationAudit,
+    UnsupportedTensorPolicy, VqConfig, audit_container, write_model_import_to_hpsi_path,
+    write_model_import_to_hpsi_path_calibrated,
 };
 use serde_json::json;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
+mod orientation;
+use orientation::summary_lines;
+
 const MAX_CALIBRATION_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CALIBRATION_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_CALIBRATION_FILES: usize = 1024;
+const MAX_ARCHITECTURE_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -45,14 +50,26 @@ fn run(args: Vec<String>) -> Result<(), String> {
     if command == "safetensors-inspect" && args.len() == 2 {
         return inspect_safetensors(path);
     }
+    let mut architecture_path: Option<String> = None;
     let tensor_id = match command {
-        "inspect" | "verify" if args.len() == 2 => None,
+        "inspect" | "verify" => {
+            let (manifest, consumed) = take_architecture_flag(&args, 2)?;
+            if consumed != args.len() {
+                return Err(usage());
+            }
+            architecture_path = manifest;
+            None
+        }
         "calibrate" if args.len() == 3 => Some(
             args[2]
                 .parse::<u32>()
                 .map_err(|_| "tensor-id must be an unsigned 32-bit integer".to_owned())?,
         ),
         _ => return Err(usage()),
+    };
+    let facts = match architecture_path.as_deref() {
+        Some(path) => Some(load_architecture(path)?),
+        None => None,
     };
 
     let source = Arc::new(FileSource::open(path).map_err(|e| e.to_string())?);
@@ -100,6 +117,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
                     stored
                 );
             }
+            for line in summary_lines(&report_orientation(&reader, facts.as_ref())) {
+                println!("{line}");
+            }
             println!(
                 "payload_bytes_read_during_inspect: {}",
                 reader.stats().payload_bytes_read
@@ -108,10 +128,24 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "verify" => {
             let verified = reader.verify_all().map_err(|e| e.to_string())?;
+            let audit = report_orientation(&reader, facts.as_ref());
             let stats = reader.stats();
             println!("OK: verified {verified} CRC32C records");
             println!("payload_bytes_read: {}", stats.payload_bytes_read);
             println!("read_operations: {}", stats.read_operations);
+            for line in summary_lines(&audit) {
+                println!("{line}");
+            }
+            // CRC32C only proves the bytes are the bytes that were written. An
+            // orientation finding means those bytes describe a matrix whose
+            // declared orientation is structurally inconsistent or contradicts
+            // the supplied model definition, so the command must not succeed.
+            if !audit.invalid.is_empty() {
+                return Err(format!(
+                    "orientation contract violated: {}",
+                    audit.invalid.join("; ")
+                ));
+            }
             Ok(())
         }
         "calibrate" => calibrate_activations(&reader, tensor_id.expect("validated command")),
@@ -212,6 +246,116 @@ fn calibrate_activations(reader: &ModelReader, tensor_id: u32) -> Result<(), Str
     Ok(())
 }
 
+/// Container-level orientation audit shared by `inspect` and `verify`.
+///
+/// `inspect` reports the audit without failing: showing that an orientation is
+/// unverified is not the same operation as depending on it. `verify` treats a
+/// non-empty `invalid` as a failure. A rectangular declared orientation is
+/// falsified here from the stored selector byte count; a square one is not
+/// decidable from the container at all, so it can only be confirmed by an
+/// architecture manifest or rejected as unverified.
+fn report_orientation(reader: &ModelReader, facts: Option<&ArchitectureFacts>) -> OrientationAudit {
+    audit_container(reader, facts)
+}
+
+/// Read an architecture manifest under a hard byte cap.
+///
+/// The manifest is the only external architectural information the CLI accepts;
+/// without it the CLI has no way to confirm an orientation and must say so.
+fn load_architecture(path: &str) -> Result<ArchitectureFacts, String> {
+    let file = fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut contents = String::new();
+    file.take(MAX_ARCHITECTURE_MANIFEST_BYTES + 1)
+        .read_to_string(&mut contents)
+        .map_err(|e| format!("{path}: {e}"))?;
+    if contents.len() as u64 > MAX_ARCHITECTURE_MANIFEST_BYTES {
+        return Err(format!(
+            "architecture manifest exceeds the {} MiB limit: {path}",
+            MAX_ARCHITECTURE_MANIFEST_BYTES / (1024 * 1024)
+        ));
+    }
+    ArchitectureFacts::from_json(&contents).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Parse the optional trailing `--architecture <manifest.json>` flag.
+fn take_architecture_flag(
+    args: &[String],
+    start: usize,
+) -> Result<(Option<String>, usize), String> {
+    let mut manifest: Option<String> = None;
+    let mut index = start;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--architecture" if index + 1 < args.len() && manifest.is_none() => {
+                manifest = Some(args[index + 1].clone());
+                index += 2;
+            }
+            _ => return Err(usage()),
+        }
+    }
+    Ok((manifest, index))
+}
+
+/// Reject a plan whose orientation contradicts the supplied model definition
+/// before any container is written.
+///
+/// The importer chooses an orientation from calibration, or declares the legacy
+/// default; it never sees the architecture. This preflight is the point where an
+/// external definition can stop a wrong transposition from being encoded.
+fn check_plan_orientation(
+    plan: &ModelImportPlan,
+    facts: Option<&ArchitectureFacts>,
+) -> Result<(), String> {
+    let Some(facts) = facts else {
+        return Ok(());
+    };
+    let mut findings = Vec::new();
+    for tensor in &plan.tensors {
+        let Some(expectation) = facts.expectation(&tensor.source_name) else {
+            continue;
+        };
+        if let Some(required) = expectation.orientation {
+            if required != tensor.weight_orientation {
+                findings.push(format!(
+                    "{}: import would encode {} but the model definition requires {}",
+                    tensor.source_name,
+                    tensor.weight_orientation.as_str(),
+                    required.as_str()
+                ));
+            }
+        }
+        if !expectation.roles.is_empty()
+            && tensor.source_shape.len() == 2
+            && !expectation.roles.contains(&tensor.role)
+        {
+            findings.push(format!(
+                "{}: import would record role {} but the model definition evidences only [{}]",
+                tensor.source_name,
+                tensor.role.as_str(),
+                expectation
+                    .roles
+                    .iter()
+                    .map(|role| role.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(shape) = expectation.source_shape {
+            if tensor.source_shape != shape.to_vec() {
+                findings.push(format!(
+                    "{}: source shape {:?} does not match the model definition {:?}",
+                    tensor.source_name, tensor.source_shape, shape
+                ));
+            }
+        }
+    }
+    if findings.is_empty() {
+        Ok(())
+    } else {
+        Err(findings.join("; "))
+    }
+}
+
 fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     if args.len() < 3 {
         return Err(usage());
@@ -220,6 +364,7 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     let destination = &args[2];
     let mut calibration_dir: Option<&Path> = None;
     let mut reject_raw = false;
+    let mut architecture_path: Option<String> = None;
     let mut index = 3;
     while index < args.len() {
         match args[index].as_str() {
@@ -231,9 +376,17 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
                 reject_raw = true;
                 index += 1;
             }
+            "--architecture" if index + 1 < args.len() && architecture_path.is_none() => {
+                architecture_path = Some(args[index + 1].clone());
+                index += 2;
+            }
             _ => return Err(usage()),
         }
     }
+    let facts = match architecture_path.as_deref() {
+        Some(path) => Some(load_architecture(path)?),
+        None => None,
+    };
 
     let source = Arc::new(FileSource::open(source_path).map_err(|e| e.to_string())?);
     let safetensors =
@@ -299,24 +452,48 @@ fn import_safetensors_command(args: &[String]) -> Result<(), String> {
     }
 
     let stats = if calibration_dir.is_some() {
-        let plan = ModelImportPlan::build_with_provenance(&safetensors, &calibrations, policy)
-            .map_err(|e| e.to_string())?;
+        let mut calibrated =
+            ModelImportPlan::build_with_provenance(&safetensors, &calibrations, policy)
+                .map_err(|e| e.to_string())?;
+        if let Some(facts) = facts.as_ref() {
+            calibrated.plan.apply_architecture_roles(facts)?;
+        }
+        check_plan_orientation(&calibrated.plan, facts.as_ref())?;
         write_model_import_to_hpsi_path_calibrated(
             &safetensors,
-            &plan,
+            &calibrated,
             destination,
             VqConfig::default(),
             128,
         )
         .map_err(|e| e.to_string())?
     } else {
-        let plan = ModelImportPlan::build(&safetensors, &[], policy).map_err(|e| e.to_string())?;
+        let mut plan =
+            ModelImportPlan::build(&safetensors, &[], policy).map_err(|e| e.to_string())?;
+        if let Some(facts) = facts.as_ref() {
+            plan.apply_architecture_roles(facts)?;
+        }
+        check_plan_orientation(&plan, facts.as_ref())?;
         write_model_import_to_hpsi_path(&safetensors, &plan, destination, VqConfig::default(), 128)
             .map_err(|e| e.to_string())?
     };
     println!("OK: imported {} HPSI tensors", stats.tensor_count);
     println!("calibration_files: {}", calibrations.len());
     println!("output: {}", destination);
+    // Reopen the artifact and audit what was actually persisted. The plan is
+    // not evidence that the container carries the same declaration.
+    let written = Arc::new(FileSource::open(destination).map_err(|e| e.to_string())?);
+    let reader = ModelReader::open(written, &ReaderLimits::default()).map_err(|e| e.to_string())?;
+    let audit = report_orientation(&reader, facts.as_ref());
+    for line in summary_lines(&audit) {
+        println!("{line}");
+    }
+    if !audit.invalid.is_empty() {
+        return Err(format!(
+            "the container just written violates the orientation contract: {}",
+            audit.invalid.join("; ")
+        ));
+    }
     Ok(())
 }
 
@@ -360,7 +537,7 @@ fn inspect_safetensors(path: &str) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: hpsi <inspect|verify> <model.hpsi> | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors> | hpsi safetensors-import <model.safetensors> <output.hpsi> [--calibration-dir <dir>] [--reject-raw]".to_owned()
+    "usage: hpsi <inspect|verify> <model.hpsi> [--architecture <manifest.json>] | hpsi calibrate <model.hpsi> <tensor-id> | hpsi safetensors-inspect <model.safetensors> | hpsi safetensors-import <model.safetensors> <output.hpsi> [--calibration-dir <dir>] [--reject-raw] [--architecture <manifest.json>]".to_owned()
 }
 
 fn help() -> String {

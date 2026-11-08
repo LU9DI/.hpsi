@@ -1,0 +1,367 @@
+{
+  "format": "hpsi-layout-cases",
+  "version": 1,
+  "note": [
+    "One normative table, two independent implementations.",
+    "The Rust suite (crates/hpsi-ops/tests/embedding_layout_parity.rs) evaluates",
+    "each case through hpsi_ops::validate_entry_layout; the Python suite",
+    "(tests/test_embedding_layout_parity.py) evaluates the same case through",
+    "audit_hpsi_container.entry_layout_violation. Neither calls the other and",
+    "neither reads the other's code: they agree on the code string or the phase",
+    "fails. Rules are applied in the documented order, so a case that breaks two",
+    "rules reports the first one only - that is asserted here as well.",
+    "expect: null means the entry is acceptable; a string is the violation code.",
+    "No case here infers anything from a name, a rank or a matching dimension."
+  ],
+  "cases": [
+    {
+      "id": "embedding_axis0_valid",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": null
+    },
+    {
+      "id": "embedding_axis0_without_orientation",
+      "source_shape": [32, 16],
+      "weight_orientation": null,
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": "orientation_required"
+    },
+    {
+      "id": "embedding_axis0_without_logical_shape",
+      "source_shape": [32, 16],
+      "weight_orientation": null,
+      "logical_shape": null,
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "expect": "orientation_required"
+    },
+    {
+      "id": "embedding_axis1_rejected",
+      "source_shape": [16, 32],
+      "weight_orientation": "conv1d_in_out",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 1,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": "axis_one_unsupported"
+    },
+    {
+      "id": "embedding_axis_out_of_range",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 5,
+      "context": "source",
+      "expect": "axis_value_unsupported"
+    },
+    {
+      "id": "embedding_axis_missing",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": null,
+      "context": "source",
+      "expect": "table_without_axis"
+    },
+    {
+      "id": "embedding_logical_conflicts_axis",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [16, 32],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": "logical_shape_conflicts_axis"
+    },
+    {
+      "id": "embedding_orientation_not_the_grouped_axis",
+      "source_shape": [32, 16],
+      "weight_orientation": "conv1d_in_out",
+      "logical_shape": [16, 32],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "expect": "table_orientation_mismatch"
+    },
+    {
+      "id": "embedding_selector_bytes_mismatch",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 33,
+      "expect": "selector_bytes_mismatch"
+    },
+    {
+      "id": "embedding_selector_not_encodable",
+      "source_shape": [32, 12],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 12],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": "selector_layout_unencodable"
+    },
+    {
+      "id": "embedding_with_activation_statistics",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "calibrated": true,
+      "expect": "table_must_not_be_calibrated"
+    },
+    {
+      "id": "two_codebooks_valid",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 2,
+      "stored_index_bytes": 64,
+      "expect": null
+    },
+    {
+      "id": "linear_projection_valid",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "linear_projection",
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": null
+    },
+    {
+      "id": "conv1d_projection_valid",
+      "source_shape": [16, 32],
+      "weight_orientation": "conv1d_in_out",
+      "logical_shape": [32, 16],
+      "tensor_role": "conv1d_projection",
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": null
+    },
+    {
+      "id": "projection_role_without_orientation",
+      "source_shape": [32, 16],
+      "weight_orientation": null,
+      "logical_shape": null,
+      "tensor_role": "linear_projection",
+      "context": "source",
+      "expect": "role_without_orientation"
+    },
+    {
+      "id": "projection_role_wrong_orientation",
+      "source_shape": [16, 32],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [16, 32],
+      "tensor_role": "conv1d_projection",
+      "context": "source",
+      "expect": "role_orientation_mismatch"
+    },
+    {
+      "id": "unknown_role_is_acceptable_and_unverified",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "unknown",
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": null
+    },
+    {
+      "id": "other_role_is_acceptable",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "other",
+      "context": "source",
+      "expect": null
+    },
+    {
+      "id": "axis_on_non_indexed_role",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "other",
+      "index_axis": 0,
+      "context": "source",
+      "expect": "axis_for_non_indexed_role"
+    },
+    {
+      "id": "axis_without_role",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": null,
+      "index_axis": 0,
+      "context": "source",
+      "expect": "axis_without_role"
+    },
+    {
+      "id": "role_outside_the_vocabulary",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": "linear",
+      "context": "source",
+      "expect": "role_token_unknown"
+    },
+    {
+      "id": "logical_shape_without_orientation",
+      "source_shape": [32, 16],
+      "weight_orientation": null,
+      "logical_shape": [32, 16],
+      "tensor_role": null,
+      "context": "source",
+      "expect": "orientation_required"
+    },
+    {
+      "id": "orientation_without_logical_shape",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": null,
+      "tensor_role": null,
+      "context": "source",
+      "expect": "logical_shape_required"
+    },
+    {
+      "id": "logical_shape_contradicts_orientation",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [16, 32],
+      "tensor_role": null,
+      "context": "source",
+      "expect": "logical_shape_conflicts_orientation"
+    },
+    {
+      "id": "legacy_pre_contract_entry",
+      "source_shape": [32, 16],
+      "weight_orientation": null,
+      "logical_shape": null,
+      "tensor_role": null,
+      "context": "source",
+      "expect": null
+    },
+    {
+      "id": "legacy_orientation_only_entry",
+      "source_shape": [32, 16],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [32, 16],
+      "tensor_role": null,
+      "context": "source",
+      "quantized": true,
+      "codebook_count": 1,
+      "stored_index_bytes": 32,
+      "expect": null
+    },
+    {
+      "id": "vector_with_logical_shape",
+      "source_shape": [16],
+      "weight_orientation": null,
+      "logical_shape": [16, 16],
+      "tensor_role": null,
+      "context": "source",
+      "expect": "logical_shape_on_non_matrix"
+    },
+    {
+      "id": "vector_with_matrix_role",
+      "source_shape": [16],
+      "weight_orientation": "linear_out_in",
+      "tensor_role": "linear_projection",
+      "context": "source",
+      "expect": "matrix_role_on_non_matrix"
+    },
+    {
+      "id": "vector_with_unknown_role",
+      "source_shape": [16],
+      "weight_orientation": "linear_out_in",
+      "tensor_role": "unknown",
+      "context": "source",
+      "expect": null
+    },
+    {
+      "id": "order_table_axis_one_before_orientation",
+      "source_shape": [16, 32],
+      "weight_orientation": "linear_out_in",
+      "logical_shape": [16, 32],
+      "tensor_role": "embedding_table",
+      "index_axis": 1,
+      "context": "source",
+      "expect": "axis_one_unsupported"
+    },
+    {
+      "id": "manifest_table_axis0_without_orientation",
+      "source_shape": [],
+      "weight_orientation": null,
+      "tensor_role": "embedding_table",
+      "index_axis": 0,
+      "context": "manifest",
+      "expect": null
+    },
+    {
+      "id": "manifest_conv1d_role_with_linear_layout",
+      "source_shape": [],
+      "weight_orientation": "linear_out_in",
+      "tensor_role": "conv1d_projection",
+      "context": "manifest",
+      "expect": "role_orientation_mismatch"
+    },
+    {
+      "id": "manifest_axis_one_still_rejected",
+      "source_shape": [],
+      "tensor_role": "embedding_table",
+      "index_axis": 1,
+      "context": "manifest",
+      "expect": "axis_one_unsupported"
+    },
+    {
+      "id": "manifest_role_only_unknown_is_acceptable",
+      "source_shape": [],
+      "tensor_role": "unknown",
+      "context": "manifest",
+      "expect": null
+    }
+  ]
+}

@@ -50,6 +50,147 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+TENSOR_ROLES = ("conv1d_projection", "embedding_table", "linear_projection", "other", "unknown")
+ROLE_LAYOUTS = {
+    "linear_projection": "linear_out_in",
+    "conv1d_projection": "conv1d_in_out",
+}
+IDENTITY_STATUSES = ("resolved", "conflict", "unresolved")
+
+
+def validate_identity_records(records: Any) -> list[str]:
+    """Check the version-2 architecture section of a capture bundle.
+
+    The records are the producer's claim about which parameter is which, so the
+    checks are about internal agreement: an alias belongs to one identity, a
+    resolved record states the roles its evidence states, and a record that could
+    not be settled states no role at all instead of guessing one.
+    """
+    require(isinstance(records, list), "manifest tensors must be an array")
+
+    seen_canonical: set[str] = set()
+    seen_alias: set[str] = set()
+    unresolved: list[str] = []
+
+    for record in records:
+        require(isinstance(record, dict), "manifest tensor identity record must be an object")
+        aliases = record.get("aliases")
+        require(
+            isinstance(aliases, list)
+            and aliases
+            and all(isinstance(alias, str) and alias.strip() for alias in aliases)
+            and len(set(aliases)) == len(aliases),
+            f"identity record {record!r}: `aliases` must be unique non-empty strings",
+        )
+        canonical = record.get("canonical_name")
+        require(
+            canonical is None or (isinstance(canonical, str) and canonical.strip()),
+            f"identity record: `canonical_name` must be a non-empty string or null",
+        )
+        name = canonical if isinstance(canonical, str) else aliases[0]
+        require(
+            all(alias not in seen_alias for alias in aliases),
+            f"{name}: an alias belongs to more than one identity; the bundle grouped "
+            "parameters by something other than their identity",
+        )
+        seen_alias.update(aliases)
+        require(record.get("identity") == "parameter-object-identity",
+                f"{name}: `identity` must be 'parameter-object-identity'")
+
+        status = record.get("status")
+        require(status in IDENTITY_STATUSES, f"{name}: unsupported identity status {status!r}")
+        roles = record.get("tensor_roles")
+        require(
+            isinstance(roles, list)
+            and all(role in TENSOR_ROLES for role in roles)
+            and roles == sorted(set(roles)),
+            f"{name}: `tensor_roles` must be unique known roles in sorted order",
+        )
+        evidence = record.get("evidence")
+        require(isinstance(evidence, list), f"{name}: `evidence` must be an array")
+        evidenced: set[str] = set()
+        for row in evidence:
+            require(isinstance(row, dict), f"{name}: evidence rows must be objects")
+            alias = row.get("alias")
+            require(
+                isinstance(alias, str) and alias in aliases,
+                f"{name}: evidence alias {alias!r} is not one of the identity's aliases",
+            )
+            role = row.get("tensor_role")
+            if role is None:
+                require(
+                    isinstance(row.get("conflicts"), list) and row["conflicts"],
+                    f"{name}: evidence for {alias!r} states no role and no reason why",
+                )
+                continue
+            require(role in TENSOR_ROLES, f"{name}: evidence role {role!r} is not known")
+            require(role in roles, f"{name}: evidence names {role!r}, which the record drops")
+            evidenced.add(role)
+            if role == "embedding_table":
+                require(row.get("index_axis") == 0,
+                        f"{name}: embedding_table evidence must state index_axis 0")
+                require(row.get("weight_orientation") is None,
+                        f"{name}: embedding_table evidence must not claim a layout")
+            else:
+                require(
+                    row.get("weight_orientation") == ROLE_LAYOUTS.get(role),
+                    f"{name}: {role} evidence must state layout "
+                    f"{ROLE_LAYOUTS.get(role)!r}",
+                )
+                require(row.get("index_axis") is None,
+                        f"{name}: {role} evidence may not state an index_axis")
+        if status == "resolved":
+            require(isinstance(canonical, str) and canonical.strip(),
+                    f"{name}: a resolved identity must name its physical key")
+            require(canonical not in seen_canonical, f"{canonical}: declared by two identities")
+            seen_canonical.add(canonical)
+            require(canonical in aliases,
+                    f"{name}: the physical key must be one of the identity's aliases")
+            require(bool(roles), f"{name}: a resolved identity states no role")
+            require(evidenced == set(roles),
+                    f"{name}: roles {sorted(set(roles) - evidenced)} are declared with no "
+                    "module evidence behind them")
+            require("embedding_table" in roles or record.get("index_axis") is None,
+                    f"{name}: index_axis without an embedding_table role")
+            require("embedding_table" not in roles or record.get("index_axis") == 0,
+                    f"{name}: an embedding table must state its indexing axis")
+            projection = next((role for role in roles if role in ROLE_LAYOUTS), None)
+            expected = ROLE_LAYOUTS.get(projection) if projection else None
+            if projection is None:
+                tables = [role for role in roles if role == "embedding_table"]
+                require(tables and record.get("weight_orientation") is None,
+                        f"{name}: a role set with neither a projection nor a table states no layout "
+                        "and no indexing")
+            else:
+                require(record.get("weight_orientation") == expected,
+                        f"{name}: `weight_orientation` must be {expected!r} for {projection}")
+        else:
+            require(
+                not roles and record.get("index_axis") is None
+                and record.get("weight_orientation") is None,
+                f"{name}: a {status} identity must declare no role, layout or index axis",
+            )
+            conflicts = record.get("conflicts")
+            require(isinstance(conflicts, list) and conflicts,
+                    f"{name}: a {status} identity must say what is unresolved")
+            unresolved.append(name)
+
+        shape = record.get("shape")
+        require(
+            shape == [] or (
+                isinstance(shape, list)
+                and all(isinstance(dimension, int) and not isinstance(dimension, bool)
+                        and dimension > 0 for dimension in shape)
+            ),
+            f"{name}: `shape` must be positive integers or empty",
+        )
+        dtype = record.get("dtype")
+        require(dtype is None or (isinstance(dtype, str) and dtype.strip()),
+                f"{name}: `dtype` must be a non-empty string or null")
+
+    return unresolved
+
+
 def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, Any]:
     root = directory.resolve(strict=True)
     require(root.is_dir(), "calibration path must be a directory")
@@ -57,7 +198,7 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
     require(manifest.get("format") == "hpsi-transformer-calibration-manifest", "unsupported manifest format")
     manifest_version = manifest.get("version")
     require(isinstance(manifest_version, int) and not isinstance(manifest_version, bool)
-            and manifest_version == 1, "unsupported manifest version")
+            and manifest_version in (1, 2), "unsupported manifest version")
     model_type = manifest.get("model_type")
     revision = manifest.get("model_revision")
     require(isinstance(model_type, str) and model_type.strip(), "manifest model_type is missing")
@@ -90,6 +231,18 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
         require(isinstance(filename, str) and filename and Path(filename).name == filename, f"{name}: unsafe calibration filename")
         require(filename not in seen_files, f"duplicate calibration filename: {filename}")
         seen_files.add(filename)
+        module_type = entry.get("module_type")
+        require(isinstance(module_type, str) and module_type in ("linear", "conv1d"),
+                f"{name}: manifest module_type must be 'linear' or 'conv1d'")
+        if manifest_version == 2:
+            aliases = entry.get("aliases")
+            require(
+                isinstance(aliases, list)
+                and aliases
+                and all(isinstance(alias, str) and alias.strip() for alias in aliases)
+                and name in aliases,
+                f"{name}: a version 2 layer must name the aliases of the parameter it measured",
+            )
         artifact_path = (root / filename).resolve(strict=True)
         require(artifact_path.parent == root, f"{name}: calibration file escapes bundle directory")
         artifact = load_json(artifact_path)
@@ -99,6 +252,12 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
                 and artifact_version == 1, f"{name}: unsupported artifact version")
         require(artifact.get("layer_name") == name, f"{name}: layer name mismatch")
         require(artifact.get("statistic") == "diagonal_second_moment", f"{name}: unsupported statistic")
+        artifact_module_type = artifact.get("module_type")
+        if artifact_module_type is not None:
+            require(isinstance(artifact_module_type, str) and artifact_module_type in ("linear", "conv1d"),
+                    f"{name}: artifact module_type must be 'linear' or 'conv1d'")
+            require(artifact_module_type == module_type,
+                    f"{name}: artifact module_type does not match the manifest")
         artifact_model = artifact.get("model")
         require(isinstance(artifact_model, dict), f"{name}: model metadata must be an object")
         require(artifact_model.get("model_type") == model_type, f"{name}: model_type mismatch")
@@ -134,12 +293,24 @@ def validate_bundle(directory: Path, dataset: Path | None = None) -> dict[str, A
             require(finite and value >= 0, f"{name}: moment {index} must be finite and non-negative")
         total_samples += count
 
+    unresolved: list[str] = []
+    if manifest_version == 2:
+        unresolved = validate_identity_records(manifest.get("tensors"))
+        declared_unresolved = manifest.get("architecture_unresolved")
+        require(
+            isinstance(declared_unresolved, list) and declared_unresolved == sorted(unresolved),
+            "architecture_unresolved does not match the identities that are not resolved",
+        )
+
     return {
         "valid": True,
+        "bundle_version": manifest_version,
         "model_type": model_type,
         "model_revision": revision,
         "dataset_sha256": dataset_hash,
         "captured_layers": len(layers),
+        "architecture_tensors": len(manifest.get("tensors") or []),
+        "architecture_unresolved": unresolved,
         "total_layer_samples": total_samples,
         "total_features": sum(int(item["features"]) for item in layers),
     }
