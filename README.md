@@ -734,6 +734,18 @@ package). `audit_hpsi_container.py` needs `numpy`; `capture_transformer_activati
 and `eval_hpsi_parity.py` optionally need `torch`/`transformers`. Run
 `python tools/<script>.py --help` for each tool's arguments.
 
+## Project and maintainers
+
+- **Author and copyright holder:** Lucas Bessa de Araujo ([LU9DI](https://github.com/LU9DI)).
+- **Project maintainer:** Filtra.AI (CNPJ 69.113.166/0001-10).
+
+Lucas Bessa de Araujo is the copyright holder of the HPSI source code.
+Filtra.AI acts as the project's maintainer and supporter. Filtra.AI is **not**
+declared a copyright co-owner; any assignment or co-ownership of rights would
+depend on a separate legal instrument. The company's legal entity name
+(razão social) remains pending confirmation and is intentionally not stated
+here.
+
 ## License
 
 HPSI is dual-licensed under either of
