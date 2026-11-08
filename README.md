@@ -715,8 +715,8 @@ cargo install --path apps/hpsi-cli --locked --root ./hpsi-install
 
 The CLI prints its usage when invoked without a recognized command. The exit
 code is `0` on success and non-zero on error; diagnostics are written to stderr
-as `hpsi: <message>`. The `--help` and `--version` flags are **not implemented
-in v0.1**; invoke `hpsi` with an invalid command to print the usage line.
+as `hpsi: <message>`. Run `hpsi --help` (or `-h`) for the command list and
+`hpsi --version` (or `-V`) for the package version.
 
 ## HPSI Toolkit v0.1 — scope and limitations
 
