@@ -49,9 +49,10 @@ O **HPSI Toolkit v0.1** é **aderente ao escopo declarado** (contêiner, importa
 | 1.13 | Publicação atômica verificada (FR-015) | Implementado | `writer.rs::write_path` | writer tests | **IMPLEMENTADO E VALIDADO** |
 | 1.14 | Taxonomia de erro tipada (FR-016) | Implementado | `error.rs` | unit tests | **IMPLEMENTADO E VALIDADO** |
 | 1.15 | Corrupção/truncamento | Implementado | `reader.rs`, `writer.rs` | adversarial tests | **IMPLEMENTADO E VALIDADO** |
-| 1.16 | Versionamento/flags (NFR-007) | Implementado | `header.rs` | unit tests | **IMPLEMENTADO E VALIDADO** |
+| 1.16 | Versionamento/flags (NFR-007) | Rejeita versões ≠ 0.1 e flags ≠ 0; **sem negociação forward** | `header.rs` | unit tests | **IMPLEMENTADO E VALIDADO** |
 | 1.17 | Assinatura/criptografia | Fora do escopo v0.1 | — | — | **RESERVADO PARA VERSÃO FUTURA** |
 | 1.18 | ZSTD/codecs 2–6 | Sem decoder; só identificadores | `docs/format-v0.1.md §7` | — | **RESERVADO PARA VERSÃO FUTURA** |
+| 1.19 | Padding zero entre regiões | Writer emite zeros; `ModelReader::verify_padding()` valida, mas `open`, `verify_all()` e `hpsi verify` **não** o chamam | `writer.rs` (`pad_to`), `reader.rs::verify_padding` | testes de padding | **IMPLEMENTADO, VALIDAÇÃO INCOMPLETA** |
 
 ### 3.2 Organização em blocos
 
@@ -60,7 +61,7 @@ O **HPSI Toolkit v0.1** é **aderente ao escopo declarado** (contêiner, importa
 | 2.1 | Mapeamento tensor→blocos contíguos | Implementado | `reader.rs`, `writer.rs` | reader/writer tests | **IMPLEMENTADO E VALIDADO** |
 | 2.2 | Cobertura lógica exata, sem buracos | Implementado | `reader.rs` | validation tests | **IMPLEMENTADO E VALIDADO** |
 | 2.3 | Payloads não sobrepostos, dentro da região | Implementado | `region.rs`, `reader.rs` | reader tests | **IMPLEMENTADO E VALIDADO** |
-| 2.4 | `codec`/`layout` por bloco | Implementado (parseado/validado) | `block.rs` | reader tests | **IMPLEMENTADO E VALIDADO** |
+| 2.4 | `codec`/`layout` por bloco | Implementado; **apenas `layout = 0`** aceito (`≠ 0` rejeitado) | `block.rs` | reader tests | **IMPLEMENTADO E VALIDADO** |
 | 2.5 | `auxiliary_ref` | Implementado | `block.rs`, `reader.rs` | reader tests | **IMPLEMENTADO E VALIDADO** |
 | 2.6 | Blocos esparsos/opcionais | Não permitido no v0.1 (regra contígua) | `docs/format-v0.1.md §6` | — | **IMPLEMENTADO E VALIDADO** (decisão de escopo) |
 | 2.7 | Mathematical directory / shared assets | Não implementado | — | README "Proposed" | **RESERVADO PARA VERSÃO FUTURA** |
@@ -122,10 +123,11 @@ O **HPSI Toolkit v0.1** é **aderente ao escopo declarado** (contêiner, importa
 
 ## 4. Diagrama da arquitetura física implementada
 
-Somente o que é comprovado por `docs/format-v0.1.md`, `crates/hpsi-format` e testes.
+Somente o que é comprovado por `docs/format-v0.1.md`, `crates/hpsi-format` e testes. O diagrama é o **layout canônico do writer de referência**; o formato é **offset-driven** — o reader valida offsets, alinhamento, limites e não sobreposição, mas **não exige** esta ordem física.
 
 ```
-Arquivo .hpsi v0.1 (offsets absolutos, todas as regiões alinhadas a 8 B, padding zero)
+Layout CANÔNICO do writer de referência (o reader é offset-driven e não exige esta ordem).
+Offsets absolutos; regiões alinhadas a 8 B; padding zero emitido pelo writer.
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ HEADER — 128 B                                                               │
 │  0   magic "HPSI"           4 B   │  4  format_major u16 = 0                │
@@ -173,6 +175,14 @@ Mapeamento lógico:
   verify_all() ──▶ CRC32C de metadata (target_kind=1) + de cada bloco coberto (target_kind=2)
 ```
 
+**Notas de precisão (verificadas no código):**
+
+1. **Ordem:** `writer.rs` emite header → metadata → tensor dir → block dir → integrity → payload (`pad_to`); `region.rs::validate_regions` só exige alinhamento, limites e não sobreposição — **não** exige ordem.
+2. **Padding:** `writer.rs::pad_to` emite zeros; `reader.rs::verify_padding(max_bytes)` valida padding, mas **não** é chamado por `ModelReader::open`, por `verify_all()` nem pelo CLI `hpsi verify` (que chama apenas `verify_all`).
+3. **Blocos:** `block.rs` exige `layout == 0` (e `flags == 0`, `reserved == 0`).
+4. **Versão:** `header.rs` exige `major = 0` e `minor = 1`; qualquer outra versão é **rejeitada**, sem negociação de compatibilidade forward.
+5. **Não exaustivo:** `header.rs` também exige `tensor_count > 0`, `block_count > 0`, `metadata.length > 0`, `payload.length > 0`; diretório de integridade vazio deve ter offset 0 e `entry_size` 0; `flags` do header e bytes reservados devem ser zero; `artifact_id` é opaco (o writer grava zero).
+
 **Fora do diagrama atual (futuro/proposto, não implementado):** Mathematical directory, Shared assets, codecs ZSTD/CODEBOOK/LOW_RANK/LOOKUP/RESIDUAL com decoder, runtime de inferência.
 
 ## 5. Testes executados (estado auditado, HEAD `41c8248`)
@@ -198,13 +208,14 @@ Mapeamento lógico:
 6. **Cobertura LLVM** — não medida (sem `llvm-tools`).
 7. **Segurança de dependências** — `cargo audit`/`cargo deny` não instalados; advisories não validados.
 8. **Publicação** — não realizada; documentação/legal com pendência de razão social da Filtra.AI.
+9. **Padding não verificado pelo CLI** — `verify_padding()` existe e tem testes, mas `open`, `verify_all()` e `hpsi verify` não o executam.
 
 ## 7. Classificação final
 
 **`ADERENTE COM PENDÊNCIAS`.**
 
 - **Aderente:** contêiner/formato físico, organização em blocos, metadados/papéis/orientação, importação, CLI, integridade, paridade e fuzzing correspondem ao especificado e estão validados.
-- **Pendências:** tudo o que a arquitetura original previa como visão ampla (runtime, decoders, math directory, GPU, MoE, POC com modelo real) permanece explicitamente **futuro**; e há limitações de validação (cobertura, audit tools, modelo real) registradas.
+- **Pendências:** tudo o que a arquitetura original previa como visão ampla (runtime, decoders, math directory, GPU, MoE, POC com modelo real) permanece explicitamente **futuro**; e há limitações de validação (cobertura, audit tools, modelo real, padding não integrado ao CLI `verify`) registradas.
 
 Não há evidência de desvio do formato v0.1, de `user.tensor_roles`, de decoder inexistente declarado como disponível, ou de runtime de inferência no escopo.
 
