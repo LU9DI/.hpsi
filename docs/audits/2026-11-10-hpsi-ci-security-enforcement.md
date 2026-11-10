@@ -4,7 +4,7 @@
 **Repositório:** `C:\Users\lucas\HPSI`
 **Branch:** `feat/hpsi-core-container`
 **HEAD de referência:** `9180c73ed0965576bfe17f435325792b21492101`
-**Natureza:** alteração restrita a workflow e criação deste relatório. **Nenhum commit**, push, merge, tag, release, deploy ou publicação. Nenhum manifest, dependência ou política `deny.toml` alterado.
+**Natureza:** alteração restrita a workflow e criação deste relatório. Na ocasião da redação, nenhum commit, push, merge, tag, release, deploy ou publicação havia ocorrido; a alteração e este relatório foram posteriormente commitados (`234ba1c` e `5691936`). Nenhum manifest, dependência ou política `deny.toml` alterado.
 
 ---
 
@@ -23,7 +23,7 @@
 | `deny.toml` | SHA-256 `1abf78bab7b2b5196064d55eb6ffd54f1f63e84974afff630b07ac6afb150474` — **inalterado** |
 | `fuzz/deny.toml` | SHA-256 `9f54c9cc67f90fe00325acf261d9a3cffb9e0b31c6dab44beb862b5a8e978b7d` — **inalterado** |
 
-Os oito itens de scratch preservados são os mesmos da auditoria anterior (`.tmp-gpt2-conv1d-test/`, `.tmp-gpt2-final/`, `.tmp-phase4/`, `fuzz/coverage/`, `prepare_gpt2_test.py` e três `.bak`). O relatório não rastreado `docs/audits/2026-11-10-hpsi-consolidated-history-review.md` também foi mantido.
+Os oito itens de scratch preservados são os mesmos da auditoria anterior (`.tmp-gpt2-conv1d-test/`, `.tmp-gpt2-final/`, `.tmp-phase4/`, `fuzz/coverage/`, `prepare_gpt2_test.py` e três `.bak`). O relatório `docs/audits/2026-11-10-hpsi-consolidated-history-review.md`, então não rastreado, também foi mantido; ele foi posteriormente versionado no repositório.
 
 ---
 
@@ -227,12 +227,12 @@ Hashes após a alteração:
 | HEAD | `9180c73ed0965576bfe17f435325792b21492101` (inalterado) |
 | Índice | vazio (nada adicionado) |
 | Modificados | `.github/workflows/ci.yml` (único arquivo rastreado alterado) |
-| Novos arquivos | `docs/audits/2026-11-10-hpsi-ci-security-enforcement.md` (não rastreado) |
+| Novos arquivos | `docs/audits/2026-11-10-hpsi-ci-security-enforcement.md` (então não rastreado; posteriormente versionado e commitado) |
 | Scratch | 8 itens preservados |
 | `deny.toml` / `fuzz/deny.toml` | inalterados |
 | `fuzz.yml` | inalterado |
 
-Nada foi commitado, enviado, mesclado, tagueado, publicado ou implantado. Nenhum `git add` foi executado.
+No momento da redação, nada havia sido commitado, enviado, mesclado, tagueado, publicado ou implantado, e nenhum `git add` havia sido executado.
 
 ---
 
@@ -246,8 +246,8 @@ O job `security` adiciona, em cada `push`/`pull_request`, as três verificaçõe
 
 Os três passam localmente no HEAD atual, e os testes de falha demonstram que um advisory ou uma licença não permitida produzem exit não zero e reprovam o CI. As ferramentas e as Actions novas estão fixadas em versões e commits verificados; nenhuma política foi enfraquecida; nenhuma permissão foi ampliada.
 
-**Pronto para revisão.** O diff e os resultados estão acima; nenhum commit foi feito.
+**Pronto para revisão na ocasião.** O diff e os resultados estão acima; nenhum commit havia sido feito à época. A alteração de workflow foi posteriormente commitada em `234ba1c` e este relatório em `5691936`.
 
 ---
 
-*Alteração de CI e relatório. Sem commit, push, merge, tag, release, deploy ou publicação.*
+*Alteração de CI e relatório. No momento da redação, sem commit, push, merge, tag, release, deploy ou publicação; a alteração e este relatório foram posteriormente commitados.*
