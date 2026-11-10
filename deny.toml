@@ -1,0 +1,35 @@
+# HPSI v0.1 — política de licenças e fontes (cargo-deny)
+#
+# Escopo: workspace raiz (hpsi-format, hpsi-ops, hpsi-cli) e suas dependências
+# normais, de build, proc-macro e transitivas (14 pacotes no Cargo.lock).
+# O workspace `fuzz/` é separado (`publish = false`) e NÃO é coberto por este
+# arquivo; suas licenças (p.ex. NCSA do libfuzzer-sys) exigiriam política própria.
+#
+# Nota de versão: o cargo-deny 0.20 removeu a chave `unlicensed`; a checagem de
+# licenças passou a ser deny-by-default, de modo que "sem licença" é rejeitado
+# por não constar da allow-list. Ver
+# https://github.com/EmbarkStudios/cargo-deny/pull/611
+# A política abaixo mantém o efeito equivalente a `unlicensed = "deny"` sem usar
+# a chave removida.
+
+[licenses]
+# Somente as licenças efetivamente auditadas no grafo (ver relatório):
+#   MIT, Apache-2.0, Unlicense, Unicode-3.0.
+# Nenhum curinga; nenhuma licença não auditada é liberada.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unlicense",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.8
+# Nenhuma exceção por crate: as licenças acima valem para todo o grafo.
+exceptions = []
+
+[sources]
+# Cargo.lock contém apenas `registry+https://github.com/rust-lang/crates.io-index`.
+# Qualquer outra fonte (registry desconhecido ou git) é rejeitada.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
