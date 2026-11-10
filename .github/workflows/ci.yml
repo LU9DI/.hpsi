@@ -98,3 +98,30 @@ jobs:
       - name: Compile libFuzzer targets
         working-directory: fuzz
         run: cargo +nightly check --bins
+
+  # Tools and action commits are pinned; see
+  # docs/audits/2026-11-10-hpsi-ci-security-enforcement.md for the audited SHAs.
+  security:
+    name: Security and license gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install project Rust toolchain
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Install audit and license tools
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-audit@0.22.2,cargo-deny@0.20.2
+
+      - name: Audit workspace dependencies
+        run: cargo audit
+
+      - name: Enforce root dependency policy
+        run: cargo deny --config deny.toml check
+
+      - name: Enforce fuzz workspace dependency policy
+        working-directory: fuzz
+        run: cargo deny --config deny.toml check
