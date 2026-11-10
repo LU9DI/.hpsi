@@ -272,7 +272,9 @@ Nada foi commitado, enviado, mesclado, tagueado, publicado ou implantado.
 
 ---
 
-*Auditoria consolidada dos 28 commits locais. Somente leitura; nenhum código, dependência, manifest ou relatório histórico alterado. Aguardando revisão antes de qualquer alteração ou commit.*
+*Auditoria consolidada dos 28 commits locais. Somente leitura; nenhum código, dependência, manifest ou relatório histórico alterado.*
+
+**Nota de atualização:** esta observação descreve o estado do documento no momento de sua redação. O relatório foi posteriormente revisado e commitado no repositório; as seções 1–8 mantêm os resultados da auditoria original.
 
 ---
 

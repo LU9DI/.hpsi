@@ -162,4 +162,6 @@ Os cinco commits remotos foram integrados por merge verdadeiro, sem reescrita do
 
 ---
 
-*Reconciliação documental. Sem push, tag, release, deploy ou publicação. Relatório não commitado.*
+*Reconciliação documental. No momento da redação, não havia ocorrido push, tag, release, deploy ou publicação.*
+
+**Nota de atualização:** esta observação descreve o estado do documento no momento de sua redação. O relatório foi posteriormente revisado e commitado no repositório.
