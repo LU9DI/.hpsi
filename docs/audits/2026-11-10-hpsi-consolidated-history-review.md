@@ -266,9 +266,9 @@ Nenhum.
 | `deny.toml` | `1abf78ba…b150474` (inalterado) |
 | `fuzz/deny.toml` | `9f54c9cc…8e978b7d` (inalterado) |
 | Relatório de política fuzz | `db8bbe2c…5ecd3928a` (inalterado) |
-| Novo artefato | **este relatório** (não rastreado, não commitado) |
+| Novo artefato | **este relatório** (posteriormente versionado e commitado) |
 
-Nada foi commitado, enviado, mesclado, tagueado, publicado ou implantado.
+No momento da auditoria, nada foi commitado, enviado, mesclado, tagueado, publicado ou implantado.
 
 ---
 

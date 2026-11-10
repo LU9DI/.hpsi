@@ -6,7 +6,7 @@
 **HEAD antes do merge:** `5691936ddb56f270dc7497efb5af0d3d32314c07`
 **Referência remota integrada:** `2fbad5c4d3df4f9301fca57896cdd88d2710f67b`
 **Commit de merge:** `0839f156265286dae8cba83a7756b6545b3cefad`
-**Natureza:** merge verdadeiro (`--no-ff`), sem rebase, cherry-pick ou estratégia `ours`. Nenhum push, tag, release, deploy ou publicação. Este relatório permanece **não commitado** para revisão.
+**Natureza:** merge verdadeiro (`--no-ff`), sem rebase, cherry-pick ou estratégia `ours`. Nenhum push, tag, release, deploy ou publicação. Este relatório foi posteriormente revisado e commitado no repositório.
 
 ---
 
@@ -116,12 +116,12 @@ Os hashes dos backups coincidem com os dos originais movidos.
 | Merge-base com o remoto | `2fbad5c4…` |
 | À frente / atrás | 31 à frente, 0 atrás |
 | Índice | vazio (o merge não deixou staging pendente) |
-| Este relatório | **não rastreado** |
+| Este relatório | rastreado e commitado |
 | Scratch | 8 itens preservados |
 
 Os oito itens de scratch continuam presentes: `.tmp-gpt2-conv1d-test/`, `.tmp-gpt2-final/`, `.tmp-phase4/` (agora parcialmente rastreado), `fuzz/coverage/`, `prepare_gpt2_test.py` e os três `.bak`. Como `.tmp-phase4/` passou a conter arquivos rastreados, o restante do scratch aparece listado individualmente em `git status`; isso é esperado e não representa perda. Qualquer decisão sobre `.gitignore` fica para etapa separada.
 
-O relatório consolidado `docs/audits/2026-11-10-hpsi-consolidated-history-review.md` continua não rastreado e preservado.
+O relatório consolidado `docs/audits/2026-11-10-hpsi-consolidated-history-review.md` foi preservado e, posteriormente, versionado no repositório.
 
 A validação remota do workflow de CI continua pendente: nenhum job foi executado no GitHub Actions.
 
@@ -158,7 +158,7 @@ Os logs integrais estão fora do repositório, em
 
 ## 10. Conclusão
 
-Os cinco commits remotos foram integrados por merge verdadeiro, sem reescrita dos 30 commits locais e sem conflitos. Os originais locais 4.3–4.5 estão preservados em `.tmp-phase4/originais/` e em backup externo, com hashes conferidos. O 4.6 permanece como único registro da análise arquitetural. O 4.7 foi registrado como **não homologado**: a implementação que ele alega não existe no código nem no histórico. Nada foi publicado; este relatório aguarda revisão.
+Os cinco commits remotos foram integrados por merge verdadeiro, sem reescrita dos 30 commits locais e sem conflitos. Os originais locais 4.3–4.5 estão preservados em `.tmp-phase4/originais/` e em backup externo, com hashes conferidos. O 4.6 permanece como único registro da análise arquitetural. O 4.7 foi registrado como **não homologado**: a implementação que ele alega não existe no código nem no histórico. Nada foi publicado; na ocasião, este relatório aguardava a revisão inicial, posteriormente concluída com seu commit no repositório.
 
 ---
 
