@@ -1,0 +1,54 @@
+# HPSI — política de licenças e fontes do workspace `fuzz` (cargo-deny)
+#
+# Escopo: workspace independente `fuzz/` (excluído do workspace raiz em
+# Cargo.toml; `publish = false`). Cobre hpsi-fuzz, o hpsi-format trazido por
+# path e todas as dependências normais, de build, proc-macro e transitivas:
+# 23 pacotes no fuzz/Cargo.lock — 21 externos, todos do crates.io.
+# Este arquivo NÃO altera o `deny.toml` da raiz, que continua valendo apenas
+# para hpsi-format/hpsi-ops/hpsi-cli. As duas políticas são independentes:
+# aqui NCSA é concedida por exceção restrita ao libfuzzer-sys 0.4.13.
+#
+# Evidência completa: docs/audits/2026-11-09-hpsi-fuzz-license-policy.md
+#
+# Nota de versão: o cargo-deny 0.20 removeu a chave `unlicensed`; a checagem de
+# licenças passou a ser deny-by-default, de modo que "sem licença" é rejeitado
+# por não constar da allow-list. Ver
+# https://github.com/EmbarkStudios/cargo-deny/pull/611
+
+[licenses]
+# Somente as licenças efetivamente auditadas neste grafo:
+#   MIT / Apache-2.0 — 17 pacotes, sempre em `MIT OR Apache-2.0`;
+#   Unlicense        — memchr 2.8.3, `Unlicense OR MIT` (o pacote traz UNLICENSE);
+#   Unicode-3.0      — unicode-ident 1.0.27, `(MIT OR Apache-2.0) AND Unicode-3.0`.
+# Nenhum curinga; nenhuma licença não auditada é liberada.
+# NCSA não é liberada globalmente: ver a exceção restrita abaixo.
+# Não libera LGPL-2.1-or-later: ela aparece apenas como alternativa em
+# r-efi 6.0.0, `MIT OR Apache-2.0 OR LGPL-2.1-or-later`, e a expressão é
+# satisfeita pelo ramo MIT/Apache-2.0; além disso r-efi só entra no grafo com
+# cfg(target_os = "uefi") + getrandom_backend = "efi_rng".
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unlicense",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.8
+
+# Única licença fora da allow-list geral, concedida apenas ao crate e à versão
+# que a exigem: libfuzzer-sys 0.4.13 declara `(MIT OR Apache-2.0) AND NCSA` e
+# seu README afirma que os arquivos vendorizados em `libfuzzer/` são NCSA,
+# enquanto o restante é MIT/Apache-2.0. Qualquer outro crate que declare NCSA
+# continua rejeitado, e uma versão diferente de libfuzzer-sys só recebe a
+# concessão após nova auditoria da expressão declarada.
+[[licenses.exceptions]]
+allow = ["NCSA"]
+name = "libfuzzer-sys"
+version = "=0.4.13"
+
+[sources]
+# fuzz/Cargo.lock contém apenas `registry+https://github.com/rust-lang/crates.io-index`
+# e um path local (hpsi-format). Qualquer outra fonte é rejeitada.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
